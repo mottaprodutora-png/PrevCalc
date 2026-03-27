@@ -1,4 +1,4 @@
-export interface CnisVínculo {
+export interface CnisVinculo {
   id: string;
   empresa: string;
   inicio: string; // ISO date

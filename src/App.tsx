@@ -23,7 +23,7 @@ import {
   History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CnisVínculo, CalculoResultado } from './types';
+import { CnisVinculo, CalculoResultado } from './types';
 import { calcularPrevidencia } from './lib/calculator';
 import { cn } from './lib/utils';
 import { parseCnisText } from './services/gemini';
@@ -37,7 +37,7 @@ type ReportType = 'advogado' | 'contribuinte' | null;
 
 export default function App() {
   console.log("App component rendering...");
-  const [vinculos, setVinculos] = useState<CnisVínculo[]>([]);
+  const [vinculos, setVinculos] = useState<CnisVinculo[]>([]);
   const [nome, setNome] = useState('');
   const [nascimento, setNascimento] = useState('1970-01-01');
   const [genero, setGenero] = useState<'M' | 'F'>('M');
@@ -142,7 +142,7 @@ export default function App() {
   }, [vinculos, nascimento, genero]);
 
   const addVinculo = () => {
-    const newVinculo: CnisVínculo = {
+    const newVinculo: CnisVinculo = {
       id: Math.random().toString(36).substr(2, 9),
       empresa: 'Nova Empresa',
       inicio: '2000-01-01',
@@ -156,7 +156,7 @@ export default function App() {
     setVinculos(vinculos.filter(v => v.id !== id));
   };
 
-  const updateVinculo = (id: string, updates: Partial<CnisVínculo>) => {
+  const updateVinculo = (id: string, updates: Partial<CnisVinculo>) => {
     setVinculos(vinculos.map(v => v.id === id ? { ...v, ...updates } : v));
   };
 

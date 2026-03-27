@@ -9,10 +9,10 @@ import {
   endOfMonth,
   eachMonthOfInterval
 } from 'date-fns';
-import { CnisVínculo, CalculoResultado, RegraSimulada, Inconsistencia, TimelineEvent } from '../types';
+import { CnisVinculo, CalculoResultado, RegraSimulada, Inconsistencia, TimelineEvent } from '../types';
 
 export function calcularPrevidencia(
-  vinculos: CnisVínculo[], 
+  vinculos: CnisVinculo[], 
   dataNascimento: string, 
   genero: 'M' | 'F'
 ): CalculoResultado {
