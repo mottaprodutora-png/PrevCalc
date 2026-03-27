@@ -1,9 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { CnisVínculo } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+const ai = (process.env.GEMINI_API_KEY) 
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  : null;
 
 export async function parseCnisText(text: string): Promise<{ nome?: string, vinculos: CnisVínculo[] }> {
+  if (!ai) {
+    console.warn("Gemini API Key is missing. AI parsing will not work.");
+    return { vinculos: [] };
+  }
   const model = "gemini-3-flash-preview";
   
   const response = await ai.models.generateContent({

@@ -36,11 +36,12 @@ import { useEffect } from 'react';
 type ReportType = 'advogado' | 'contribuinte' | null;
 
 export default function App() {
+  console.log("App component rendering...");
   const [vinculos, setVinculos] = useState<CnisVínculo[]>([]);
   const [nome, setNome] = useState('');
   const [nascimento, setNascimento] = useState('1970-01-01');
   const [genero, setGenero] = useState<'M' | 'F'>('M');
-  const [activeTab, setActiveTab] = useState<'manual' | 'import'>('manual');
+  const [activeTab, setActiveTab] = useState<'manual' | 'import' | 'saved'>('manual');
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [isFileLoading, setIsFileLoading] = useState(false);
