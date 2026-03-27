@@ -192,6 +192,10 @@ export default function App() {
       let text = '';
       if (file.type === 'application/pdf') {
         text = await extractTextFromPdf(file);
+        if (!text.trim()) {
+          alert("Não foi possível extrair texto deste PDF. Verifique se o arquivo é um PDF de texto e não uma imagem escaneada.");
+          return;
+        }
       } else {
         const reader = new FileReader();
         text = await new Promise((resolve, reject) => {
