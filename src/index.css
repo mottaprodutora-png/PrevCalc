@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Georgia", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-primary: #2563eb;
+  --color-brand-secondary: #64748b;
+  --color-brand-bg: #f8fafc;
+  --color-brand-card: #ffffff;
+  --color-brand-border: #e2e8f0;
+  --color-brand-text: #0f172a;
+  --color-brand-muted: #64748b;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-bg text-brand-text antialiased;
+  }
+  
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+    #printable-report, #printable-report * {
+      visibility: visible;
+    }
+    #printable-report {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      padding: 0 !important;
+      margin: 0 !important;
+      background: white !important;
+      color: black !important;
+    }
+    .no-print {
+      display: none !important;
+    }
+  }
+
+  /* Fix for html2canvas/html2pdf.js not supporting oklch/oklab colors in Tailwind v4 */
+  #printable-report {
+    --color-white: #ffffff;
+    --color-black: #000000;
+    --color-transparent: transparent;
+    --color-current: currentColor;
+    
+    --color-gray-50: #f9fafb;
+    --color-gray-100: #f3f4f6;
+    --color-gray-200: #e5e7eb;
+    --color-gray-300: #d1d5db;
+    --color-gray-400: #9ca3af;
+    --color-gray-500: #6b7280;
+    --color-gray-600: #4b5563;
+    --color-gray-700: #374151;
+    --color-gray-800: #1f2937;
+    --color-gray-900: #111827;
+    --color-gray-950: #030712;
+    
+    --color-blue-50: #eff6ff;
+    --color-blue-100: #dbeafe;
+    --color-blue-200: #bfdbfe;
+    --color-blue-300: #93c5fd;
+    --color-blue-400: #60a5fa;
+    --color-blue-500: #3b82f6;
+    --color-blue-600: #2563eb;
+    --color-blue-700: #1d4ed8;
+    --color-blue-800: #1e40af;
+    --color-blue-900: #1e3a8a;
+    --color-blue-950: #172554;
+    
+    --color-green-50: #f0fdf4;
+    --color-green-100: #dcfce7;
+    --color-green-200: #bbf7d0;
+    --color-green-300: #86efac;
+    --color-green-400: #4ade80;
+    --color-green-500: #22c55e;
+    --color-green-600: #16a34a;
+    --color-green-700: #15803d;
+    --color-green-800: #166534;
+    --color-green-900: #14532d;
+    --color-green-950: #052e16;
+    
+    --color-amber-50: #fffbeb;
+    --color-amber-100: #fef3c7;
+    --color-amber-200: #fde68a;
+    --color-amber-300: #fcd34d;
+    --color-amber-400: #fbbf24;
+    --color-amber-500: #f59e0b;
+    --color-amber-600: #d97706;
+    --color-amber-700: #b45309;
+    --color-amber-800: #92400e;
+    --color-amber-900: #78350f;
+    --color-amber-950: #451a03;
+    
+    --color-red-50: #fef2f2;
+    --color-red-100: #fee2e2;
+    --color-red-200: #fecaca;
+    --color-red-300: #fca5a5;
+    --color-red-400: #f87171;
+    --color-red-500: #ef4444;
+    --color-red-600: #dc2626;
+    --color-red-700: #b91c1c;
+    --color-red-800: #991b1b;
+    --color-red-900: #7f1d1d;
+    --color-red-950: #450a0a;
+
+    --color-slate-50: #f8fafc;
+    --color-slate-100: #f1f5f9;
+    --color-slate-200: #e2e8f0;
+    --color-slate-300: #cbd5e1;
+    --color-slate-400: #94a3b8;
+    --color-slate-500: #64748b;
+    --color-slate-600: #475569;
+    --color-slate-700: #334155;
+    --color-slate-800: #1e293b;
+    --color-slate-900: #0f172a;
+    --color-slate-950: #020617;
+
+    --color-zinc-50: #fafafa;
+    --color-zinc-100: #f4f4f5;
+    --color-zinc-200: #e4e4e7;
+    --color-zinc-300: #d4d4d8;
+    --color-zinc-400: #a1a1aa;
+    --color-zinc-500: #71717a;
+    --color-zinc-600: #52525b;
+    --color-zinc-700: #3f3f46;
+    --color-zinc-800: #27272a;
+    --color-zinc-900: #18181b;
+    --color-zinc-950: #09090b;
+
+    --color-neutral-50: #fafafa;
+    --color-neutral-100: #f5f5f5;
+    --color-neutral-200: #e5e5e5;
+    --color-neutral-300: #d4d4d4;
+    --color-neutral-400: #a3a3a3;
+    --color-neutral-500: #737373;
+    --color-neutral-600: #525252;
+    --color-neutral-700: #404040;
+    --color-neutral-800: #262626;
+    --color-neutral-900: #171717;
+    --color-neutral-950: #0a0a0a;
+
+    --color-sky-50: #f0f9ff;
+    --color-sky-100: #e0f2fe;
+    --color-sky-500: #0ea5e9;
+    --color-sky-600: #0284c7;
+    
+    --color-indigo-50: #eef2ff;
+    --color-indigo-100: #e0e7ff;
+    --color-indigo-500: #6366f1;
+    --color-indigo-600: #4f46e5;
+
+    --color-violet-50: #f5f3ff;
+    --color-violet-100: #ede9fe;
+    --color-violet-500: #8b5cf6;
+    --color-violet-600: #7c3aed;
+
+    --color-purple-50: #faf5ff;
+    --color-purple-100: #f3e8ff;
+    --color-purple-500: #a855f7;
+    --color-purple-600: #9333ea;
+
+    --color-fuchsia-50: #fdf4ff;
+    --color-fuchsia-100: #fae8ff;
+    --color-fuchsia-500: #d946ef;
+    --color-fuchsia-600: #c026d3;
+
+    --color-pink-50: #fdf2f8;
+    --color-pink-100: #fce7f3;
+    --color-pink-500: #ec4899;
+    --color-pink-600: #db2777;
+
+    --color-rose-50: #fff1f2;
+    --color-rose-100: #ffe4e6;
+    --color-rose-500: #f43f5e;
+    --color-rose-600: #e11d48;
+
+    --color-stone-50: #fafaf9;
+    --color-stone-100: #f5f5f4;
+    --color-stone-200: #e7e5e4;
+    --color-stone-300: #d6d3d1;
+    --color-stone-400: #a8a29e;
+    --color-stone-500: #78716c;
+    --color-stone-600: #57534e;
+    --color-stone-700: #44403c;
+    --color-stone-800: #292524;
+    --color-stone-900: #1c1917;
+    --color-stone-950: #0c0a09;
+
+    --color-orange-50: #fff7ed;
+    --color-orange-100: #ffedd5;
+    --color-orange-500: #f97316;
+    --color-orange-600: #ea580c;
+
+    --color-yellow-50: #fefce8;
+    --color-yellow-100: #fef9c3;
+    --color-yellow-500: #eab308;
+    --color-yellow-600: #ca8a04;
+
+    --color-lime-50: #f7fee7;
+    --color-lime-100: #ecfccb;
+    --color-lime-500: #84cc16;
+    --color-lime-600: #65a30d;
+
+    --color-emerald-50: #ecfdf5;
+    --color-emerald-100: #d1fae5;
+    --color-emerald-500: #10b981;
+    --color-emerald-600: #059669;
+
+    --color-teal-50: #f0fdfa;
+    --color-teal-100: #ccfbf1;
+    --color-teal-500: #14b8a6;
+    --color-teal-600: #0d9488;
+
+    --color-cyan-50: #ecfeff;
+    --color-cyan-100: #cffafe;
+    --color-cyan-500: #06b6d4;
+    --color-cyan-600: #0891b2;
+  }
+
+  /* Force standard colors for common properties inside the report to avoid oklab/oklch leakage */
+  #printable-report * {
+    border-color: #e5e7eb !important; /* Default to gray-200 hex */
+    outline-color: #e5e7eb !important;
+    text-decoration-color: currentColor !important;
+    accent-color: auto !important;
+    caret-color: auto !important;
+    color-scheme: light !important;
+    stop-color: currentColor !important;
+    flood-color: currentColor !important;
+    lighting-color: currentColor !important;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #141414;
+    border-radius: 2px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #333;
+  }
+}

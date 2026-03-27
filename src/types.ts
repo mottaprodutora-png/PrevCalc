@@ -1,0 +1,75 @@
+export interface CnisVínculo {
+  id: string;
+  empresa: string;
+  inicio: string; // ISO date
+  fim?: string;   // ISO date
+  tipo: 'Empregado' | 'Contribuinte Individual' | 'Facultativo' | 'Especial' | 'Rural';
+  especial?: boolean;
+  salarios: CnisSalario[];
+}
+
+export interface CnisSalario {
+  competencia: string; // YYYY-MM
+  valor: number;
+}
+
+export interface CalculoResultado {
+  resumo: {
+    tempoTotalDias: number;
+    tempoTotalFormatado: string;
+    carenciaMeses: number;
+    statusAtual: 'Apto' | 'Não Apto';
+    tempoFaltanteFormatado: string;
+    previsaoAposentadoria: string;
+    percentualConcluido: number;
+    melhorRegraNome: string;
+  };
+  regras: RegraSimulada[];
+  melhorOpcao: RegraSimulada;
+  valorEstimado: {
+    media: number;
+    coeficiente: number;
+    beneficio: number;
+    regraUtilizada: string;
+    percentualCalculo: number;
+  };
+  inconsistencias: Inconsistencia[];
+  analiseJuridica: {
+    revisoes: string[];
+    periodosEspeciais: string[];
+    periodosRurais: string[];
+    contribuinteIndividual: string[];
+  };
+  planoAcao: string[];
+  documentos: {
+    obrigatorios: string[];
+    previdenciarios: string[];
+    estrategicos: string[];
+  };
+  timeline: TimelineEvent[];
+}
+
+export interface TimelineEvent {
+  tipo: 'Trabalho' | 'Lacuna' | 'Invalido' | 'Especial' | 'Rural';
+  descricao: string;
+  periodo: string;
+  inicio: string;
+  fim: string;
+  impacto?: 'Impede Aposentadoria' | 'Reduz Valor' | 'Neutro';
+}
+
+export interface RegraSimulada {
+  nome: string;
+  status: 'Apto' | 'Não Apto';
+  dataAptidao?: string;
+  tempoFaltanteDias?: number;
+  descricao: string;
+}
+
+export interface Inconsistencia {
+  tipo: 'Sem Remuneração' | 'Abaixo do Mínimo' | 'Lacuna' | 'Vínculo Incompleto';
+  descricao: string;
+  periodo: string;
+  impactoTempo?: string;
+  impactoValor?: string;
+}

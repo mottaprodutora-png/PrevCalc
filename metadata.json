@@ -1,0 +1,5 @@
+{
+  "name": "PrevCalc - Motor de Cálculo Previdenciário",
+  "description": "Análise determinística de dados do CNIS para cálculo de aposentadoria INSS com base na legislação vigente.",
+  "requestFramePermissions": []
+}
