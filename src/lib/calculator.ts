@@ -1,15 +1,16 @@
 import { 
   differenceInDays, 
   parseISO, 
-  format, 
   addDays, 
   isBefore, 
   isAfter, 
   startOfMonth, 
   endOfMonth,
-  eachMonthOfInterval
+  eachMonthOfInterval,
+  isValid
 } from 'date-fns';
 import { CnisVinculo, CalculoResultado, RegraSimulada, Inconsistencia, TimelineEvent } from '../types';
+import { safeFormat } from './dateUtils';
 
 // Constantes de Salário Mínimo e Teto (Simplificadas para validação pós-reforma)
 const SALARIO_MINIMO_2024 = 1412;
@@ -31,13 +32,14 @@ export function calcularPrevidencia(
   vinculos.forEach(v => {
     if (v.inicio) {
       try {
-        const start = startOfMonth(parseISO(v.inicio));
+        const isoInicio = v.inicio;
+        const start = startOfMonth(parseISO(isoInicio));
         const end = v.fim ? endOfMonth(parseISO(v.fim)) : endOfMonth(hoje);
         
-        if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && isBefore(start, end)) {
+        if (isValid(start) && isValid(end) && isBefore(start, end)) {
           const interval = eachMonthOfInterval({ start, end });
           interval.forEach(date => {
-            const comp = format(date, 'yyyy-MM');
+            const comp = safeFormat(date, 'yyyy-MM');
             const existing = mesesContribuicao.get(comp);
             
             // Pega o salário se existir para esta competência
@@ -176,7 +178,7 @@ export function calcularPrevidencia(
       status: (pontos >= (genero === 'M' ? 101 : 91) && tempoAnos >= (genero === 'M' ? 35 : 30)) ? 'Apto' : 'Não Apto',
       descricao: 'Soma de idade + tempo. Exige 101 pts (H) ou 91 pts (M) em 2024, com tempo mínimo de 35/30 anos.',
       tempoFaltanteDias: Math.max(0, (((genero === 'M' ? 101 : 91) - pontos) / 2) * 360),
-      dataAptidao: pontos >= (genero === 'M' ? 101 : 91) ? format(hoje, 'dd/MM/yyyy') : format(addDays(hoje, Math.max(0, (((genero === 'M' ? 101 : 91) - pontos) / 2) * 360)), 'dd/MM/yyyy')
+      dataAptidao: pontos >= (genero === 'M' ? 101 : 91) ? safeFormat(hoje, 'dd/MM/yyyy') : safeFormat(addDays(hoje, Math.max(0, (((genero === 'M' ? 101 : 91) - pontos) / 2) * 360)), 'dd/MM/yyyy')
     },
     {
       nome: 'Transição: Idade Mínima Progressiva',
@@ -187,7 +189,7 @@ export function calcularPrevidencia(
         (genero === 'M' ? 35 : 30) * 360 - tempoTotalComEspecial,
         ((genero === 'M' ? 63.5 : 58.5) - idadeAnos) * 360
       ),
-      dataAptidao: (idadeAnos >= (genero === 'M' ? 63.5 : 58.5) && tempoAnos >= (genero === 'M' ? 35 : 30)) ? format(hoje, 'dd/MM/yyyy') : undefined
+      dataAptidao: (idadeAnos >= (genero === 'M' ? 63.5 : 58.5) && tempoAnos >= (genero === 'M' ? 35 : 30)) ? safeFormat(hoje, 'dd/MM/yyyy') : undefined
     },
     {
       nome: 'Transição: Pedágio 50%',
@@ -196,7 +198,7 @@ export function calcularPrevidencia(
       tempoFaltanteDias: tempoAnos2019 >= (genero === 'M' ? 33 : 28) 
         ? Math.max(0, ((genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019) * 0.5) * 360 - tempoTotalComEspecial)
         : Infinity,
-      dataAptidao: (tempoAnos2019 >= (genero === 'M' ? 33 : 28) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019) * 0.5) ? format(hoje, 'dd/MM/yyyy') : undefined
+      dataAptidao: (tempoAnos2019 >= (genero === 'M' ? 33 : 28) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019) * 0.5) ? safeFormat(hoje, 'dd/MM/yyyy') : undefined
     },
     {
       nome: 'Transição: Pedágio 100%',
@@ -207,7 +209,7 @@ export function calcularPrevidencia(
         ((genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019)) * 360 - tempoTotalComEspecial,
         ((genero === 'M' ? 60 : 57) - idadeAnos) * 360
       ),
-      dataAptidao: (idadeAnos >= (genero === 'M' ? 60 : 57) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019)) ? format(hoje, 'dd/MM/yyyy') : undefined
+      dataAptidao: (idadeAnos >= (genero === 'M' ? 60 : 57) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019)) ? safeFormat(hoje, 'dd/MM/yyyy') : undefined
     },
     {
       nome: 'Aposentadoria por Idade (Nova Regra)',
@@ -218,7 +220,7 @@ export function calcularPrevidencia(
         ((genero === 'M' ? 65 : 62) - idadeAnos) * 360,
         (180 - carenciaMeses) * 30
       ),
-      dataAptidao: (idadeAnos >= (genero === 'M' ? 65 : 62) && carenciaMeses >= 180) ? format(hoje, 'dd/MM/yyyy') : undefined
+      dataAptidao: (idadeAnos >= (genero === 'M' ? 65 : 62) && carenciaMeses >= 180) ? safeFormat(hoje, 'dd/MM/yyyy') : undefined
     }
   ];
 
@@ -251,7 +253,7 @@ export function calcularPrevidencia(
       inconsistencias.push({
         tipo: 'Vínculo Incompleto',
         descricao: `Vínculo na empresa ${v.empresa} sem data de fim. Pode não estar sendo contado totalmente.`,
-        periodo: `${format(parseISO(v.inicio), 'dd/MM/yyyy')} - Aberto`,
+        periodo: `${safeFormat(v.inicio, 'dd/MM/yyyy')} - Aberto`,
         impactoTempo: 'REDUZ TEMPO TOTAL',
         impactoValor: 'INCERTEZA NA MÉDIA'
       });
@@ -262,7 +264,7 @@ export function calcularPrevidencia(
         inconsistencias.push({
           tipo: 'Abaixo do Mínimo',
           descricao: `Competência ${s.competencia} abaixo do mínimo. Após a Reforma, este mês não conta para tempo/carência sem complementação.`,
-          periodo: s.competencia,
+          periodo: safeFormat(s.competencia + '-01', 'MM/yyyy'),
           impactoTempo: 'NÃO CONTA TEMPO',
           impactoValor: 'REDUZ MÉDIA'
         });
@@ -284,9 +286,9 @@ export function calcularPrevidencia(
     timeline.push({
       tipo: v.tipo === 'Rural' ? 'Rural' : (v.especial ? 'Especial' : 'Trabalho'),
       descricao: v.empresa,
-      periodo: `${format(inicio, 'MM/yyyy')} - ${v.fim ? format(fim, 'MM/yyyy') : 'Atual'}`,
+      periodo: `${safeFormat(inicio, 'MM/yyyy')} - ${v.fim ? safeFormat(fim, 'MM/yyyy') : 'Atual'}`,
       inicio: v.inicio,
-      fim: v.fim || format(hoje, 'yyyy-MM-dd'),
+      fim: v.fim || safeFormat(hoje, 'yyyy-MM-dd'),
       impacto: v.especial ? 'Neutro' : 'Neutro'
     });
   }
@@ -308,7 +310,7 @@ export function calcularPrevidencia(
   const tempoFaltanteDias = melhorOpcao.tempoFaltanteDias || 0;
   const previsaoAposentadoria = tempoFaltanteDias === Infinity 
     ? "Indefinida" 
-    : format(addDays(hoje, tempoFaltanteDias), 'dd/MM/yyyy');
+    : safeFormat(addDays(hoje, tempoFaltanteDias), 'dd/MM/yyyy');
 
   return {
     resumo: {

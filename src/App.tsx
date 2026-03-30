@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { format, addDays, parseISO } from 'date-fns';
+import { addDays, parseISO, isValid } from 'date-fns';
+import { safeFormat } from './lib/dateUtils';
 import { 
   Calculator, 
   FileText, 
@@ -269,7 +270,7 @@ export default function App() {
     setIsDownloading(true);
     const opt = {
       margin: [10, 10] as [number, number],
-      filename: `Relatorio_PrevCalc_${nome ? nome.replace(/\s+/g, '_') + '_' : ''}${activeReport === 'advogado' ? 'Tecnico' : 'Resumo'}_${format(new Date(), 'dd_MM_yyyy')}.pdf`,
+      filename: `Relatorio_PrevCalc_${nome ? nome.replace(/\s+/g, '_') + '_' : ''}${activeReport === 'advogado' ? 'Tecnico' : 'Resumo'}_${safeFormat(new Date(), 'dd_MM_yyyy')}.pdf`,
       image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { 
         scale: 2, 
@@ -594,7 +595,7 @@ export default function App() {
                             <p className="text-[10px] font-bold text-brand-muted uppercase tracking-wider">Salários de Contribuição</p>
                             <button 
                               onClick={() => {
-                                const competencia = format(new Date(), 'yyyy-MM');
+                                const competencia = safeFormat(new Date(), 'yyyy-MM');
                                 updateVinculo(v.id, { salarios: [...v.salarios, { competencia, valor: 1320 }] });
                               }}
                               className="text-[10px] font-bold text-brand-primary uppercase tracking-wider flex items-center gap-1 hover:bg-brand-primary/10 px-2 py-1 rounded-md transition-all"
@@ -687,7 +688,7 @@ export default function App() {
                         <div className="flex justify-between items-start mb-2">
                           <h4 className="font-bold text-sm text-brand-text truncate pr-4">{calc.name}</h4>
                           <span className="text-[10px] font-bold text-brand-muted whitespace-nowrap">
-                            {format(new Date(calc.created_at), 'dd/MM/yy')}
+                            {safeFormat(calc.created_at, 'dd/MM/yy')}
                           </span>
                         </div>
                         <div className="flex items-center gap-4 text-[10px] font-bold text-brand-muted uppercase tracking-wider">
@@ -695,7 +696,7 @@ export default function App() {
                             <User size={10} /> {calc.gender === 'M' ? 'Masc.' : 'Fem.'}
                           </span>
                           <span className="flex items-center gap-1">
-                            <Calendar size={10} /> {format(new Date(calc.birth_date), 'dd/MM/yyyy')}
+                            <Calendar size={10} /> {safeFormat(calc.birth_date, 'dd/MM/yyyy')}
                           </span>
                         </div>
                         <div className="mt-3 pt-3 border-t border-brand-border flex justify-between items-center">
@@ -1062,7 +1063,7 @@ export default function App() {
                       {activeReport === 'advogado' ? 'Relatório Técnico Previdenciário' : 'Resumo de Aposentadoria'}
                     </h2>
                     <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest">
-                      Gerado em {format(new Date(), 'dd/MM/yyyy HH:mm')}
+                      Gerado em {safeFormat(new Date(), 'dd/MM/yyyy HH:mm')}
                     </p>
                   </div>
                 </div>
@@ -1104,7 +1105,7 @@ export default function App() {
                     <p className="text-[12px] uppercase tracking-[0.6em] text-brand-muted font-bold">Parecer Técnico de Viabilidade Previdenciária</p>
                     <div className="mt-10 flex justify-center gap-12 text-[11px] font-bold uppercase tracking-widest text-brand-muted">
                       <span className="flex items-center gap-2"><User size={12} /> Ref: {nome || 'Contribuinte'}</span>
-                      <span className="flex items-center gap-2"><Calendar size={12} /> Data: {format(new Date(), 'dd/MM/yyyy')}</span>
+                      <span className="flex items-center gap-2"><Calendar size={12} /> Data: {safeFormat(new Date(), 'dd/MM/yyyy')}</span>
                       <span className="flex items-center gap-2"><ShieldCheck size={12} /> ID: #{Math.random().toString(36).substring(7).toUpperCase()}</span>
                     </div>
                   </div>
@@ -1192,7 +1193,7 @@ export default function App() {
                               <td className="p-5 text-right font-bold text-brand-text">
                                 {regra.status === 'Apto' ? 
                                   <span className="text-green-600">IMEDIATO</span> : 
-                                  format(addDays(new Date(), regra.tempoFaltanteDias || 0), 'MM/yyyy')
+                                  safeFormat(addDays(new Date(), regra.tempoFaltanteDias || 0), 'MM/yyyy')
                                 }
                               </td>
                             </tr>
@@ -1252,7 +1253,7 @@ export default function App() {
                             <div>
                               <h4 className="font-bold text-brand-text text-lg">{v.empresa || 'Vínculo não identificado'}</h4>
                               <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mt-1">
-                                {v.inicio ? format(parseISO(v.inicio), 'dd/MM/yyyy') : '??'} a {v.fim ? format(parseISO(v.fim), 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
+                                {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '??'} a {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
                               </p>
                             </div>
                             <div className="text-right">
@@ -1265,7 +1266,7 @@ export default function App() {
                               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                                 {v.salarios.sort((a,b) => a.competencia.localeCompare(b.competencia)).map((s, sIdx) => (
                                   <div key={sIdx} className="bg-white border border-brand-border/50 p-3 rounded-xl text-center">
-                                    <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{format(parseISO(s.competencia + '-01'), 'MM/yyyy')}</p>
+                                    <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{safeFormat(s.competencia + '-01', 'MM/yyyy')}</p>
                                     <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                   </div>
                                 ))}
