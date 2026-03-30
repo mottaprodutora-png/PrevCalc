@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { format, addDays } from 'date-fns';
+import { format, addDays, parseISO } from 'date-fns';
 import { 
   Calculator, 
   FileText, 
@@ -1201,11 +1201,53 @@ export default function App() {
                     </div>
                   </section>
 
-                  {/* 4. MAPA PREVIDENCIÁRIO - APENAS TÉCNICO */}
+                  {/* 4. DETALHAMENTO DOS VÍNCULOS E SALÁRIOS */}
+                  <section className="space-y-8">
+                    <div className="flex items-center gap-4 border-b border-brand-border pb-4">
+                      <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">04</span>
+                      <h3 className="text-2xl font-bold text-brand-text">Detalhamento dos Vínculos e Salários</h3>
+                    </div>
+                    <div className="space-y-6">
+                      {vinculos.map((v, idx) => (
+                        <div key={v.id} className="bg-brand-bg/30 border border-brand-border rounded-3xl overflow-hidden">
+                          <div className="bg-brand-bg/50 p-6 border-b border-brand-border flex justify-between items-center">
+                            <div>
+                              <h4 className="font-bold text-brand-text text-lg">{v.empresa || 'Vínculo não identificado'}</h4>
+                              <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mt-1">
+                                {v.inicio ? format(parseISO(v.inicio), 'dd/MM/yyyy') : '??'} a {v.fim ? format(parseISO(v.fim), 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mb-1">Contribuições</p>
+                              <p className="text-lg font-bold text-brand-text">{v.salarios.length}</p>
+                            </div>
+                          </div>
+                          {v.salarios.length > 0 ? (
+                            <div className="p-6">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                {v.salarios.sort((a,b) => a.competencia.localeCompare(b.competencia)).map((s, sIdx) => (
+                                  <div key={sIdx} className="bg-white border border-brand-border/50 p-3 rounded-xl text-center">
+                                    <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{format(parseISO(s.competencia + '-01'), 'MM/yyyy')}</p>
+                                    <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center text-brand-muted italic text-sm">
+                              Nenhum salário de contribuição identificado para este período.
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  {/* 5. MAPA PREVIDENCIÁRIO - APENAS TÉCNICO */}
                   {activeReport === 'advogado' && (
                     <section className="space-y-8">
                       <div className="flex items-center gap-4 border-b border-brand-border pb-4">
-                        <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">04</span>
+                        <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">05</span>
                         <h3 className="text-2xl font-bold text-brand-text">Mapa Previdenciário (Timeline)</h3>
                       </div>
                       <div className="space-y-6">
@@ -1250,7 +1292,7 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
                       <section className="space-y-8">
                         <div className="flex items-center gap-4 border-b border-brand-border pb-4">
-                          <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">05</span>
+                          <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">06</span>
                           <h3 className="text-2xl font-bold text-brand-text">Análise Jurídica</h3>
                         </div>
                         <div className="space-y-8">
@@ -1281,7 +1323,7 @@ export default function App() {
 
                       <section className="space-y-8">
                         <div className="flex items-center gap-4 border-b border-brand-border pb-4">
-                          <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">06</span>
+                          <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">07</span>
                           <h3 className="text-2xl font-bold text-brand-text">Indicadores</h3>
                         </div>
                         <div className="space-y-8">
@@ -1316,7 +1358,7 @@ export default function App() {
                   {activeReport === 'advogado' && (
                     <section className="space-y-8">
                       <div className="flex items-center gap-4 border-b border-brand-border pb-4">
-                        <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">07</span>
+                        <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">08</span>
                         <h3 className="text-2xl font-bold text-brand-text">Plano de Ação Estratégico</h3>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1335,7 +1377,7 @@ export default function App() {
                   {/* 7. CHECKLIST DOCUMENTAL */}
                   <section className="space-y-8">
                     <div className="flex items-center gap-4 border-b border-brand-border pb-4">
-                      <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">08</span>
+                      <span className="bg-brand-primary text-white text-[12px] w-8 h-8 rounded-lg flex items-center justify-center font-bold">09</span>
                       <h3 className="text-2xl font-bold text-brand-text">Checklist Documental Organizado</h3>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

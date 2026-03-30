@@ -35,10 +35,14 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     const line = lines[i];
     
     // Tenta identificar o início de um vínculo
+    // Padrão 1: CNPJ/CEI
     const cnpjMatch = line.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{2}\.\d{3}\.\d{5}\/\d{2})/);
-    const nitMatch = line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); // Padrão NIT: XXX.XXXXX.XX-X
+    // Padrão 2: NIT
+    const nitMatch = line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); 
+    // Padrão 3: Sequencial de vínculo (ex: "1 21.234.567/0001-00")
+    const seqMatch = line.match(/^(\d+)\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
     
-    if (cnpjMatch || nitMatch) {
+    if (cnpjMatch || nitMatch || seqMatch) {
       // Se já tínhamos um vínculo sendo processado, salvamos
       if (currentVinculo && (currentVinculo.empresa || currentVinculo.inicio || currentVinculo.salarios?.length)) {
         result.vinculos.push(currentVinculo as CnisVinculo);
@@ -46,25 +50,39 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
       
       currentVinculo = {
         id: Math.random().toString(36).substr(2, 9),
-        empresa: cnpjMatch ? '' : (nitMatch ? 'Contribuinte Individual' : ''),
+        empresa: '',
         inicio: '',
-        tipo: cnpjMatch ? 'Empregado' : 'Contribuinte Individual',
+        tipo: (cnpjMatch || seqMatch) ? 'Empregado' : 'Contribuinte Individual',
         especial: false,
         salarios: []
       };
 
-      if (cnpjMatch) {
-        const lineWithoutCnpj = line.replace(cnpjMatch[0], '').replace(/^\d+\s+/, '').trim();
-        if (lineWithoutCnpj.length > 5) {
-          currentVinculo.empresa = lineWithoutCnpj;
-        } else if (i + 1 < lines.length && lines[i+1].length > 5 && !lines[i+1].match(dateRegex)) {
-          currentVinculo.empresa = lines[i + 1];
+      if (cnpjMatch || seqMatch) {
+        const match = cnpjMatch || seqMatch;
+        // Tenta pegar o nome da empresa na mesma linha
+        let lineWithoutCnpj = line.replace(match![0], '').replace(/^\d+\s+/, '').trim();
+        
+        // Se a linha tiver pouco conteúdo, tenta a linha anterior ou posterior
+        if (lineWithoutCnpj.length < 3) {
+          // Tenta linha anterior (muitas vezes o nome vem ANTES do CNPJ no PDF)
+          if (i > 0 && lines[i-1].length > 5 && !lines[i-1].match(dateRegex) && !lines[i-1].match(cnpjRegex)) {
+            lineWithoutCnpj = lines[i-1];
+          } 
+          // Tenta linha posterior
+          else if (i + 1 < lines.length && lines[i+1].length > 5 && !lines[i+1].match(dateRegex)) {
+            lineWithoutCnpj = lines[i+1];
+          }
         }
+        
+        currentVinculo.empresa = lineWithoutCnpj || 'Empresa não identificada';
+      } else if (nitMatch) {
+        currentVinculo.empresa = 'Contribuinte Individual / Autônomo';
       }
     }
 
     // Tenta capturar salários (Competência MM/AAAA e Valor)
-    const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s*(?:R\$\s*)?([\d\.,]{1,15})/g);
+    // Padrões comuns: "01/2020 1.234,56" ou "01/2020 R$ 1.234,56" ou "01/20201.234,56"
+    const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s*(?:R\$\s*)?([\d\.,]{4,15})/g);
     let foundSalary = false;
     for (const match of salaryMatches) {
       const competencia = formatCompetenciaToIso(match[1]);
@@ -93,7 +111,10 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     if (currentVinculo) {
       const dates = line.match(dateRegex);
       
-      if (line.toLowerCase().includes('especial') || line.toLowerCase().includes('insalubre') || line.toLowerCase().includes('perigoso')) {
+      if (line.toLowerCase().includes('especial') || 
+          line.toLowerCase().includes('insalubre') || 
+          line.toLowerCase().includes('perigoso') ||
+          line.match(/\b(IEAN|AEE|PEN|PENS)\b/)) {
         currentVinculo.especial = true;
       }
 
