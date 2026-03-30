@@ -473,24 +473,34 @@ export default function App() {
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="bg-white border border-brand-border rounded-xl p-5 group relative hover:border-brand-primary/50 hover:shadow-lg hover:shadow-brand-primary/5 transition-all"
                       >
-                        <button 
-                          onClick={() => removeVinculo(v.id)}
-                          className="absolute -top-2 -right-2 bg-white border border-brand-border text-red-500 p-1.5 rounded-full shadow-sm opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all z-10"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                        
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="bg-brand-bg p-2 rounded-lg text-brand-primary">
-                            <Briefcase size={18} />
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="bg-brand-primary/10 p-2 rounded-lg text-brand-primary">
+                              <Briefcase size={18} />
+                            </div>
+                            <h4 className="font-bold text-sm text-brand-text truncate max-w-[200px]">
+                              {v.empresa || 'Novo Vínculo'}
+                            </h4>
                           </div>
-                          <input 
-                            type="text" 
-                            value={v.empresa || ''}
-                            onChange={(e) => updateVinculo(v.id, { empresa: e.target.value })}
-                            className="flex-1 font-bold text-sm text-brand-text bg-transparent border-b border-transparent focus:border-brand-primary outline-none py-1 transition-all"
-                            placeholder="Nome da Empresa / Empregador"
-                          />
+                          <button 
+                            onClick={() => removeVinculo(v.id)}
+                            className="bg-white border border-brand-border text-red-500 p-1.5 rounded-full shadow-sm opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all z-10"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-4 mb-4">
+                          <div>
+                            <label className="text-[10px] font-bold text-brand-muted uppercase tracking-wider block mb-1.5">Nome da Empresa / Empregador</label>
+                            <input 
+                              type="text" 
+                              value={v.empresa || ''}
+                              onChange={(e) => updateVinculo(v.id, { empresa: e.target.value })}
+                              className="w-full font-bold text-sm text-brand-text bg-brand-bg border border-brand-border rounded-lg px-3 py-2 focus:border-brand-primary outline-none transition-all"
+                              placeholder="Ex: Empresa ABC Ltda"
+                            />
+                          </div>
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4 mb-4">
@@ -587,6 +597,7 @@ export default function App() {
                                     <span className="text-[10px] font-bold text-brand-muted">R$</span>
                                     <input 
                                       type="number" 
+                                      step="0.01"
                                       value={s.valor ?? ''}
                                       onChange={(e) => {
                                         const newSalarios = [...v.salarios];
@@ -848,7 +859,7 @@ export default function App() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-8 border-t border-white/20">
                     <div className="space-y-1">
                       <p className="text-[10px] uppercase font-bold text-white/60 tracking-wider">Expectativa de Valor</p>
-                      <p className="text-3xl font-bold">R$ {resultado.valorEstimado.beneficio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                      <p className="text-3xl font-bold">R$ {resultado.valorEstimado.beneficio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] uppercase font-bold text-white/60 tracking-wider">Coeficiente Aplicado</p>
@@ -1177,7 +1188,7 @@ export default function App() {
                           <div className="grid grid-cols-2 gap-8">
                             <div>
                               <p className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-2">Média Salarial</p>
-                              <p className="text-3xl font-bold">R$ {resultado.valorEstimado.media.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                              <p className="text-3xl font-bold">R$ {resultado.valorEstimado.media.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                             </div>
                             <div>
                               <p className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-2">Coeficiente</p>
@@ -1195,7 +1206,7 @@ export default function App() {
                         </div>
                         <div className="flex flex-col justify-center items-center border-l border-white/10 pl-12 text-center">
                           <p className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-3">Renda Mensal Inicial</p>
-                          <p className="text-5xl font-bold text-brand-primary">R$ {resultado.valorEstimado.beneficio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                          <p className="text-5xl font-bold text-brand-primary">R$ {resultado.valorEstimado.beneficio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         </div>
                       </div>
                     </div>
@@ -1228,7 +1239,7 @@ export default function App() {
                                 {v.salarios.sort((a,b) => a.competencia.localeCompare(b.competencia)).map((s, sIdx) => (
                                   <div key={sIdx} className="bg-white border border-brand-border/50 p-3 rounded-xl text-center">
                                     <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{format(parseISO(s.competencia + '-01'), 'MM/yyyy')}</p>
-                                    <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                                    <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                   </div>
                                 ))}
                               </div>

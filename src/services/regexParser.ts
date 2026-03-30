@@ -1,3 +1,4 @@
+import { parseISO, isBefore, isAfter } from "date-fns";
 import { CnisVinculo } from "../types";
 
 export function parseCnisWithRegex(text: string): { nome?: string, vinculos: CnisVinculo[] } {
@@ -62,14 +63,25 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
         // Tenta pegar o nome da empresa na mesma linha
         let lineWithoutCnpj = line.replace(match![0], '').replace(/^\d+\s+/, '').trim();
         
+        // Filtra nomes que são apenas cabeçalhos do CNIS
+        const isHeader = (text: string) => 
+          text.toLowerCase().includes('cadastro nacional') || 
+          text.toLowerCase().includes('extrato do cnis') ||
+          text.toLowerCase().includes('inss') ||
+          text.length < 3;
+
+        if (isHeader(lineWithoutCnpj)) {
+          lineWithoutCnpj = '';
+        }
+
         // Se a linha tiver pouco conteúdo, tenta a linha anterior ou posterior
-        if (lineWithoutCnpj.length < 3) {
+        if (!lineWithoutCnpj) {
           // Tenta linha anterior (muitas vezes o nome vem ANTES do CNPJ no PDF)
-          if (i > 0 && lines[i-1].length > 5 && !lines[i-1].match(dateRegex) && !lines[i-1].match(cnpjRegex)) {
+          if (i > 0 && lines[i-1].length > 5 && !lines[i-1].match(dateRegex) && !lines[i-1].match(cnpjRegex) && !isHeader(lines[i-1])) {
             lineWithoutCnpj = lines[i-1];
           } 
           // Tenta linha posterior
-          else if (i + 1 < lines.length && lines[i+1].length > 5 && !lines[i+1].match(dateRegex)) {
+          else if (i + 1 < lines.length && lines[i+1].length > 5 && !lines[i+1].match(dateRegex) && !isHeader(lines[i+1])) {
             lineWithoutCnpj = lines[i+1];
           }
         }
@@ -81,13 +93,13 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     }
 
     // Tenta capturar salários (Competência MM/AAAA e Valor)
-    // Padrões comuns: "01/2020 1.234,56" ou "01/2020 R$ 1.234,56" ou "01/20201.234,56"
+    // Exige que o valor tenha pelo menos 4 caracteres (ex: 1.000,00 ou 1000) para evitar pegar dias do mês
     const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s*(?:R\$\s*)?([\d\.,]{4,15})/g);
     let foundSalary = false;
     for (const match of salaryMatches) {
       const competencia = formatCompetenciaToIso(match[1]);
       const valor = parseCurrency(match[2]);
-      if (competencia && !isNaN(valor)) {
+      if (competencia && !isNaN(valor) && valor > 100) { // Filtro adicional para valores baixos suspeitos
         foundSalary = true;
         // Se não houver vínculo ativo, cria um genérico
         if (!currentVinculo) {
@@ -121,14 +133,32 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
       if (dates && dates.length >= 1) {
         const lowerLine = line.toLowerCase();
         
+        const d1 = formatDateToIso(dates[0]);
+        const d2 = dates.length > 1 ? formatDateToIso(dates[1]) : null;
+
         if (!currentVinculo.inicio) {
-          currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
+          // Se temos duas datas, a menor é o início
+          if (d2) {
+            const date1 = parseISO(d1);
+            const date2 = parseISO(d2);
+            if (isBefore(date1, date2)) {
+              currentVinculo.inicio = d1;
+              currentVinculo.fim = d2;
+            } else {
+              currentVinculo.inicio = d2;
+              currentVinculo.fim = d1;
+            }
+          } else {
+            currentVinculo.inicio = d1;
+          }
         } else if (dates.length >= 1 && !currentVinculo.fim) {
-          // Se já temos início mas não fim, e achamos mais datas, pode ser o fim
           const possibleEnd = formatDateToIso(dates[dates.length - 1]);
           if (possibleEnd !== currentVinculo.inicio) {
-            currentVinculo.fim = possibleEnd;
+            const start = parseISO(currentVinculo.inicio);
+            const end = parseISO(possibleEnd);
+            if (isAfter(end, start)) {
+              currentVinculo.fim = possibleEnd;
+            }
           }
         }
 
