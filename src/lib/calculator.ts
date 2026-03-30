@@ -11,8 +11,9 @@ import {
 } from 'date-fns';
 import { CnisVinculo, CalculoResultado, RegraSimulada, Inconsistencia, TimelineEvent } from '../types';
 
-// Constantes de Salário Mínimo (Simplificadas para validação pós-reforma)
+// Constantes de Salário Mínimo e Teto (Simplificadas para validação pós-reforma)
 const SALARIO_MINIMO_2024 = 1412;
+const TETO_INSS_2024 = 7786.02;
 const DATA_REFORMA = new Date(2019, 10, 13); // 13/11/2019
 
 export function calcularPrevidencia(
@@ -50,12 +51,14 @@ export function calcularPrevidencia(
                 tipo: v.tipo || 'Empregado'
               });
             } else {
-              // Soma os salários se houver sobreposição (limitado ao teto na prática, mas aqui somamos tudo)
+              // Soma os salários se houver sobreposição (limitado ao teto)
+              const novoValor = Math.min(TETO_INSS_2024, existing.valor + salario);
+              
               // Prioriza o tipo 'Empregado' se houver conflito, pois tem presunção de recolhimento
               mesesContribuicao.set(comp, {
                 especial: existing.especial || v.especial,
                 rural: existing.rural || (v.tipo === 'Rural'),
-                valor: existing.valor + salario,
+                valor: novoValor,
                 tipo: existing.tipo === 'Empregado' ? 'Empregado' : (v.tipo || existing.tipo)
               });
             }
@@ -73,14 +76,14 @@ export function calcularPrevidencia(
             mesesContribuicao.set(s.competencia, { 
               especial: !!v.especial, 
               rural: v.tipo === 'Rural',
-              valor: s.valor,
+              valor: Math.min(TETO_INSS_2024, s.valor),
               tipo: v.tipo || 'Empregado'
             });
           } else {
             mesesContribuicao.set(s.competencia, {
               especial: existing.especial || !!v.especial,
               rural: existing.rural || (v.tipo === 'Rural'),
-              valor: existing.valor + s.valor,
+              valor: Math.min(TETO_INSS_2024, existing.valor + s.valor),
               tipo: existing.tipo === 'Empregado' ? 'Empregado' : (v.tipo || existing.tipo)
             });
           }
@@ -102,19 +105,13 @@ export function calcularPrevidencia(
     const isPosReforma = isAfter(dataComp, DATA_REFORMA);
 
     // Regra Pós-Reforma: Só conta se for >= Salário Mínimo (exceto rural)
-    // Para Empregado, se não houver valor no CNIS, assumimos que foi pago (presunção de recolhimento)
-    // a menos que seja explicitamente abaixo do mínimo.
     const valorMinimoHistorico = year >= 2024 ? 1412 : (year >= 2023 ? 1320 : 1000);
     
     let contaParaTempo = true;
     if (isPosReforma && !info.rural) {
       if (info.tipo === 'Empregado') {
-        // Se for empregado e tiver valor, deve ser >= mínimo. 
-        // Se valor for 0, no CNIS de hoje em dia costuma vir o indicador PREC-MENOR-MIN se for abaixo.
-        // Aqui, se for 0, vamos assumir que conta (presunção) a menos que o usuário tenha inserido 0 manualmente.
         contaParaTempo = info.valor === 0 || info.valor >= valorMinimoHistorico;
       } else {
-        // Individual/Facultativo: PRECISA ter pago pelo menos o mínimo
         contaParaTempo = info.valor >= valorMinimoHistorico;
       }
     }
@@ -122,7 +119,6 @@ export function calcularPrevidencia(
     if (contaParaTempo) {
       tempoTotalDias += 30;
       
-      // Conversão de tempo especial SÓ para períodos ANTES da reforma
       if (info.especial && !isPosReforma) {
         tempoEspecialAdicionalDias += 30 * (fatorConversao - 1);
       }
@@ -131,10 +127,6 @@ export function calcularPrevidencia(
         mesesEm2019++;
       }
 
-      // Carência: 
-      // 1. Empregado: Sempre conta (se o tempo contar)
-      // 2. Rural: Só conta se for antes de 11/1991 ou se houver contribuição (valor > 0)
-      // 3. Individual/Facultativo: Só conta se houver contribuição (valor > 0)
       if (info.tipo === 'Empregado') {
         carenciaMeses++;
       } else if (info.rural) {
@@ -142,7 +134,6 @@ export function calcularPrevidencia(
           carenciaMeses++;
         }
       } else {
-        // Individual / Facultativo
         if (info.valor > 0) {
           carenciaMeses++;
         }
@@ -156,18 +147,17 @@ export function calcularPrevidencia(
   const idadeAnos = differenceInDays(hoje, nascimento) / 365.25;
   const pontos = idadeAnos + tempoAnos;
 
-  // 2. Cálculo da Média Salarial (100% dos salários desde 07/1994)
-  const salariosParaMedia = vinculos.flatMap(v => 
-    v.salarios
-      .filter(s => {
-        const [y, m] = s.competencia.split('-').map(Number);
-        return y > 1994 || (y === 1994 && m >= 7);
-      })
-      .map(s => s.valor)
-  );
+  // 2. Cálculo da Média Salarial (100% dos salários consolidados desde 07/1994)
+  const salariosParaMedia: number[] = [];
+  mesesContribuicao.forEach((info, comp) => {
+    const [y, m] = comp.split('-').map(Number);
+    if (y > 1994 || (y === 1994 && m >= 7)) {
+      if (info.valor > 0) {
+        salariosParaMedia.push(info.valor);
+      }
+    }
+  });
 
-  // Simulação de correção monetária (Apenas para não mostrar valores defasados)
-  // Em um sistema real, usaríamos a tabela do INPC
   const media = salariosParaMedia.length > 0 
     ? salariosParaMedia.reduce((a, b) => a + b, 0) / salariosParaMedia.length 
     : 0;

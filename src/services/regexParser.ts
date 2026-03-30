@@ -99,7 +99,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     for (const match of salaryMatches) {
       const competencia = formatCompetenciaToIso(match[1]);
       const valor = parseCurrency(match[2]);
-      if (competencia && !isNaN(valor) && valor > 100) { // Filtro adicional para valores baixos suspeitos
+      if (competencia && !isNaN(valor) && valor > 0) { // Removido filtro de > 100 para capturar valores reais baixos
         foundSalary = true;
         // Se não houver vínculo ativo, cria um genérico
         if (!currentVinculo) {
