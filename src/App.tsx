@@ -167,7 +167,12 @@ export default function App() {
       const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(importText);
       
       if (error === 'API_KEY_MISSING') {
-        alert("A chave da API do Gemini não foi configurada. Por favor, adicione GEMINI_API_KEY às variáveis de ambiente.");
+        alert("A chave da API do Gemini não foi configurada ou é inválida. Por favor, adicione GEMINI_API_KEY às variáveis de ambiente no Vercel e faça um novo deploy.");
+        return;
+      }
+
+      if (error) {
+        alert(`Erro na API do Gemini: ${error}. Verifique se sua chave de API está ativa e se você não atingiu o limite de uso.`);
         return;
       }
 
