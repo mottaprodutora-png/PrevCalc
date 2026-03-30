@@ -4,10 +4,10 @@ import { CnisVinculo } from "../types";
 const apiKey = (typeof process !== 'undefined' && process.env.GEMINI_API_KEY);
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-export async function parseCnisText(text: string): Promise<{ nome?: string, vinculos: CnisVinculo[] }> {
+export async function parseCnisText(text: string): Promise<{ nome?: string, vinculos: CnisVinculo[], error?: string }> {
   if (!ai) {
     console.warn("Gemini API Key is missing. AI parsing will not work.");
-    return { vinculos: [] };
+    return { vinculos: [], error: "API_KEY_MISSING" };
   }
   const model = "gemini-3-flash-preview";
   
@@ -25,8 +25,8 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, vinc
             1. Nome Completo do Segurado/Contribuinte (geralmente no topo do documento).
             2. Nome da Empresa/Empregador (ou NIT do empregador).
             3. Data de Início e Fim de cada vínculo.
-            4. Tipo de Vínculo (Empregado, Contribuinte Individual, Facultativo, etc).
-            5. Se é atividade especial (insalubre/perigosa) - procure por indicadores de tempo especial.
+            4. Tipo de Vínculo (Empregado, Contribuinte Individual, Facultativo, Especial, Rural, etc).
+            5. Se é atividade especial (insalubre/perigosa) - procure por indicadores de tempo especial ou códigos de agentes nocivos.
             6. Lista de salários por competência (Mês/Ano - ex: 01/2020) e o valor correspondente.
 
             REGRAS IMPORTANTES:
@@ -35,6 +35,8 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, vinc
             - Converta as datas para o formato ISO (YYYY-MM-DD).
             - Converta as competências para o formato YYYY-MM.
             - Se o texto estiver muito confuso, tente inferir os dados da melhor forma possível, mas não invente dados.
+            - Se o tipo de vínculo for "Empregado ou Agente Público", classifique como "Empregado".
+            - Se o tipo de vínculo for "Contribuinte Individual", classifique como "Contribuinte Individual".
 
             Retorne um JSON seguindo exatamente esta estrutura:
             {
@@ -44,7 +46,7 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, vinc
                   "empresa": "NOME DA EMPRESA",
                   "inicio": "YYYY-MM-DD",
                   "fim": "YYYY-MM-DD" (ou null),
-                  "tipo": "Empregado" | "Contribuinte Individual" | "Facultativo" | "Rural",
+                  "tipo": "Empregado" | "Contribuinte Individual" | "Facultativo" | "Especial" | "Rural",
                   "especial": boolean,
                   "salarios": [
                     { "competencia": "YYYY-MM", "valor": 1234.56 }
@@ -75,7 +77,7 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, vinc
                 fim: { type: Type.STRING },
                 tipo: { 
                   type: Type.STRING,
-                  enum: ["Empregado", "Contribuinte Individual", "Facultativo", "Rural"]
+                  enum: ["Empregado", "Contribuinte Individual", "Facultativo", "Especial", "Rural"]
                 },
                 especial: { type: Type.BOOLEAN },
                 salarios: {
@@ -90,7 +92,7 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, vinc
                   }
                 }
               },
-              required: ["empresa", "inicio", "tipo", "especial", "salarios"]
+              required: ["empresa", "inicio", "tipo", "especial"]
             }
           }
         },

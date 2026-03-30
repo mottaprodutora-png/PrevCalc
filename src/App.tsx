@@ -164,7 +164,13 @@ export default function App() {
     if (!importText) return;
     setIsImporting(true);
     try {
-      const { nome: importedNome, vinculos: importedVinculos } = await parseCnisText(importText);
+      const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(importText);
+      
+      if (error === 'API_KEY_MISSING') {
+        alert("A chave da API do Gemini não foi configurada. Por favor, adicione GEMINI_API_KEY às variáveis de ambiente.");
+        return;
+      }
+
       if (importedVinculos.length > 0) {
         setVinculos([...vinculos, ...importedVinculos]);
         if (importedNome && !nome) {
