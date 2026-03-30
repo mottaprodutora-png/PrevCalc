@@ -180,6 +180,9 @@ export default function App() {
           if (regexResult.nome && !nome) {
             setNome(regexResult.nome);
           }
+          if (regexResult.dataNascimento && !nascimento) {
+            setNascimento(regexResult.dataNascimento);
+          }
           setActiveTab('manual');
           setImportText('');
           setIsImporting(false);
@@ -189,7 +192,7 @@ export default function App() {
 
       // Se o regex não encontrar nada, tenta com IA (Se a chave estiver configurada)
       console.log("Parser local não encontrou dados suficientes. Tentando IA...");
-      const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(text);
+      const { nome: importedNome, dataNascimento: importedDataNascimento, vinculos: importedVinculos, error } = await parseCnisText(text);
       
       if (error === 'API_KEY_MISSING') {
         alert("Não foi possível extrair dados localmente. Para usar a extração via IA, você precisa configurar a GEMINI_API_KEY no Vercel.");
@@ -205,6 +208,9 @@ export default function App() {
         setVinculos([...vinculos, ...importedVinculos]);
         if (importedNome && !nome) {
           setNome(importedNome);
+        }
+        if (importedDataNascimento && !nascimento) {
+          setNascimento(importedDataNascimento);
         }
         setActiveTab('manual');
         setImportText('');

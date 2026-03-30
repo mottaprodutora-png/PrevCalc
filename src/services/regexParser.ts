@@ -1,21 +1,36 @@
 import { parseISO, isBefore, isAfter, differenceInDays } from "date-fns";
 import { CnisVinculo } from "../types";
 
-export function parseCnisWithRegex(text: string): { nome?: string, vinculos: CnisVinculo[] } {
-  const result: { nome?: string, vinculos: CnisVinculo[] } = { vinculos: [] };
+export function parseCnisWithRegex(text: string): { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } {
+  const result: { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } = { vinculos: [] };
 
-  // 1. Extrair Nome
-  // Tenta vários padrões comuns em extratos do INSS
+  // 1. Extrair Nome e Data de Nascimento
+  let dataNascimento: string | null = null;
+  
   const namePatterns = [
     /Nome:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
     /Nome do Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
     /Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i
   ];
 
+  const birthDatePatterns = [
+    /(?:Data de nascimento|Nascimento):\s*(\d{2}\/\d{2}\/\d{4})/i,
+    /Nasc:\s*(\d{2}\/\d{2}\/\d{4})/i
+  ];
+
   for (const pattern of namePatterns) {
     const match = text.match(pattern);
     if (match && match[1] && match[1].trim().length > 5) {
       result.nome = match[1].trim();
+      break;
+    }
+  }
+
+  for (const pattern of birthDatePatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      dataNascimento = formatDateToIso(match[1]);
+      result.dataNascimento = dataNascimento;
       break;
     }
   }
@@ -32,9 +47,22 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
   
   let currentVinculo: Partial<CnisVinculo> | null = null;
   const hoje = new Date();
+  
+  // Identifica datas de cabeçalho comuns para ignorar
+  const headerDates: string[] = [];
+  if (dataNascimento) headerDates.push(dataNascimento);
+  
+  const emissionMatch = text.match(/(?:Emissão|Processamento|Gerado em):\s*(\d{2}\/\d{2}\/\d{4})/i);
+  if (emissionMatch) headerDates.push(formatDateToIso(emissionMatch[1]));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const lowerLine = line.toLowerCase();
+    
+    // Ignora linhas que são claramente cabeçalhos de página
+    if (lowerLine.includes('cadastro nacional') || lowerLine.includes('extrato do cnis') || lowerLine.includes('página:')) {
+      continue;
+    }
     
     // Tenta identificar o início de um vínculo
     // Padrão 1: CNPJ/CEI
@@ -43,8 +71,14 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     const nitMatch = line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); 
     // Padrão 3: Sequencial de vínculo (ex: "1 21.234.567/0001-00")
     const seqMatch = line.match(/^(\d+)\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
+    // Padrão 4: Sequencial seguido de data (ex: "1 01/01/2000")
+    const seqDateMatch = line.match(/^(\d+)\s+(\d{2}\/\d{2}\/\d{4})/);
+    // Padrão 5: "Vínculo: X" ou "Seq: X"
+    const labelMatch = line.match(/^(?:Vínculo|Seq|Link|Item):\s*(\d+)/i);
     
-    if (cnpjMatch || nitMatch || seqMatch) {
+    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento);
+
+    if (isNewLink) {
       // Se já tínhamos um vínculo sendo processado, salvamos
       if (currentVinculo && (currentVinculo.empresa || currentVinculo.inicio || currentVinculo.salarios?.length)) {
         result.vinculos.push(currentVinculo as CnisVinculo);
@@ -54,15 +88,15 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
         id: Math.random().toString(36).substr(2, 9),
         empresa: '',
         inicio: '',
-        tipo: (cnpjMatch || seqMatch) ? 'Empregado' : 'Contribuinte Individual',
+        tipo: (cnpjMatch || seqMatch || labelMatch) ? 'Empregado' : 'Contribuinte Individual',
         especial: false,
         salarios: []
       };
 
-      if (cnpjMatch || seqMatch) {
-        const match = cnpjMatch || seqMatch;
+      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch) {
+        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch;
         // Tenta pegar o nome da empresa na mesma linha
-        let lineWithoutCnpj = line.replace(match![0], '').replace(/^\d+\s+/, '').trim();
+        let lineWithoutCnpj = line.replace(match![0], '').replace(/^(?:Vínculo|Seq|Link|Item):\s*\d+/i, '').replace(/^\d+\s+/, '').trim();
         
         // Filtra nomes que são apenas cabeçalhos do CNIS ou informações genéricas
         const isInvalidName = (text: string) => 
@@ -71,6 +105,8 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
           text.toLowerCase().includes('inss') ||
           text.toLowerCase().includes('página') ||
           text.toLowerCase().includes('emissão') ||
+          text.toLowerCase().includes('processamento') ||
+          text.toLowerCase().includes('competência') ||
           text.length < 3;
 
         if (isInvalidName(lineWithoutCnpj)) {
@@ -136,9 +172,20 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
 
       if (dates && dates.length >= 1) {
         // Filtra datas que são muito recentes (provavelmente data de emissão do documento)
+        // E também filtra a data de nascimento do segurado
         const validDates = dates.filter(d => {
-          const dt = parseISO(formatDateToIso(d));
-          return differenceInDays(hoje, dt) > 5; // Ignora datas de hoje ou ontem
+          const isoDate = formatDateToIso(d);
+          if (!isoDate) return false;
+          
+          // Ignora data de nascimento e outras datas de cabeçalho
+          if (headerDates.includes(isoDate)) return false;
+          
+          // Ignora datas muito recentes (provavelmente data de emissão)
+          const dateObj = parseISO(isoDate);
+          if (isAfter(dateObj, hoje)) return false;
+          if (differenceInDays(hoje, dateObj) < 5) return false; // Ignora datas de hoje ou ontem
+          
+          return true;
         });
 
         if (validDates.length >= 1) {
@@ -213,8 +260,8 @@ function formatCompetenciaToIso(compStr: string): string {
 function parseCurrency(valStr: string): number {
   if (!valStr) return 0;
   
-  // Remove R$ e espaços
-  let clean = valStr.replace(/R\$/g, '').trim();
+  // Remove R$ e espaços (incluindo espaços entre milhares)
+  let clean = valStr.replace(/R\$/g, '').replace(/\s/g, '').trim();
   
   // Se houver vírgula e ponto, o ponto é milhar e a vírgula é decimal (Padrão BR: 1.234,56)
   if (clean.includes(',') && clean.includes('.')) {
@@ -225,8 +272,6 @@ function parseCurrency(valStr: string): number {
     clean = clean.replace(',', '.');
   }
   // Se houver apenas ponto, pode ser decimal (1234.56) ou milhar (1.234)
-  // No CNIS, valores de salário geralmente têm 2 casas decimais.
-  // Se o ponto estiver na posição de decimal (ex: .56), tratamos como decimal.
   else if (clean.includes('.')) {
     const parts = clean.split('.');
     if (parts[parts.length - 1].length !== 2) {
@@ -236,5 +281,7 @@ function parseCurrency(valStr: string): number {
   }
 
   const num = parseFloat(clean);
-  return isNaN(num) ? 0 : num;
+  // Filtra valores absurdos ou que parecem ser sequenciais (ex: 1.00 ou 2.00 isolados)
+  if (isNaN(num) || num < 0.01) return 0;
+  return num;
 }
