@@ -195,13 +195,18 @@ export default function App() {
       console.log("Parser local não encontrou dados suficientes. Tentando IA...");
       const { nome: importedNome, dataNascimento: importedDataNascimento, vinculos: importedVinculos, error } = await parseCnisText(text);
       
-      if (error === 'API_KEY_MISSING') {
-        console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
-        if (regexResult.vinculos.length === 0) {
+    if (error === 'API_KEY_MISSING') {
+      console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
+      if (regexResult.vinculos.length === 0) {
+        const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('run.app');
+        if (isProduction) {
+          alert("A extração inteligente (IA) não está configurada no seu site de produção. \n\nPara resolver:\n1. Acesse as configurações do seu projeto no Vercel\n2. Adicione a variável de ambiente GEMINI_API_KEY com sua chave da Google AI Studio\n3. Faça um novo deploy.\n\nPor enquanto, tente copiar o texto novamente ou preencher manualmente.");
+        } else {
           alert("Não foi possível extrair dados automaticamente. Tente copiar o texto novamente ou preencher manualmente.");
         }
-        return;
       }
+      return;
+    }
 
       if (error) {
         alert(`Erro na extração via IA: ${error}. Tente copiar e colar o texto novamente.`);

@@ -2,6 +2,13 @@ import { parseISO, isBefore, isAfter, differenceInDays } from "date-fns";
 import { CnisVinculo } from "../types";
 
 export function parseCnisWithRegex(text: string): { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } {
+  // 0. Pré-processamento: Limpar ruídos comuns de PDF
+  const cleanText = text
+    .replace(/\s{2,}/g, ' ') // Remove espaços múltiplos
+    .replace(/(\d)\s*\/\s*(\d)/g, '$1/$2') // Corrige datas com espaços (01 / 01 / 2000)
+    .replace(/(\d)\s*,\s*(\d)/g, '$1,$2') // Corrige valores com espaços (1.000 , 00)
+    .replace(/(\d)\s*\.\s*(\d)/g, '$1.$2'); // Corrige valores com espaços (1 . 000,00)
+
   const result: { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } = { vinculos: [] };
 
   // 1. Extrair Nome e Data de Nascimento
@@ -10,16 +17,18 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   const namePatterns = [
     /Nome:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
     /Nome do Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
-    /Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i
+    /Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
+    /Nome\s+([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i
   ];
 
   const birthDatePatterns = [
     /(?:Data de nascimento|Nascimento):\s*(\d{2}\/\d{2}\/\d{4})/i,
-    /Nasc:\s*(\d{2}\/\d{2}\/\d{4})/i
+    /Nasc:\s*(\d{2}\/\d{2}\/\d{4})/i,
+    /Nascimento\s+(\d{2}\/\d{2}\/\d{4})/i
   ];
 
   for (const pattern of namePatterns) {
-    const match = text.match(pattern);
+    const match = cleanText.match(pattern);
     if (match && match[1] && match[1].trim().length > 5) {
       result.nome = match[1].trim();
       break;
@@ -27,7 +36,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   }
 
   for (const pattern of birthDatePatterns) {
-    const match = text.match(pattern);
+    const match = cleanText.match(pattern);
     if (match && match[1]) {
       dataNascimento = formatDateToIso(match[1]);
       result.dataNascimento = dataNascimento;
@@ -43,7 +52,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   const cnpjRegex = /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{2}\.\d{3}\.\d{5}\/\d{2})/g;
   
   // Dividir o texto em linhas para processar melhor
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
   let currentVinculo: Partial<CnisVinculo> | null = null;
   const hoje = new Date();
@@ -52,7 +61,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   const headerDates: string[] = [];
   if (dataNascimento) headerDates.push(dataNascimento);
   
-  const emissionMatch = text.match(/(?:Emissão|Processamento|Gerado em):\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const emissionMatch = cleanText.match(/(?:Emissão|Processamento|Gerado em):\s*(\d{2}\/\d{2}\/\d{4})/i);
   if (emissionMatch) headerDates.push(formatDateToIso(emissionMatch[1]));
 
   // Padrão para identificar competências e salários em tabelas
@@ -71,7 +80,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     // Padrão 1: CNPJ/CEI
     const cnpjMatch = line.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{2}\.\d{3}\.\d{5}\/\d{2})/);
     // Padrão 2: NIT
-    const nitMatch = line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); 
+    const nitMatch = line.match(/(?:NIT|PIS|PASEP):\s*(\d{3}\.\d{5}\.\d{2}-\d{1})/) || line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); 
     // Padrão 3: Sequencial de vínculo (ex: "1 21.234.567/0001-00")
     const seqMatch = line.match(/^(\d+)\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
     // Padrão 4: Sequencial seguido de data (ex: "1 01/01/2000")
@@ -169,7 +178,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     // Se a linha contém apenas uma competência e um valor em posições distantes
     const compMatch = line.match(/(\d{2}\/\d{4})/);
     const valMatch = line.match(/(?:R\$\s*)?([\d\.,]{4,15})/);
-    if (compMatch && valMatch && !line.includes('Emissão') && !line.includes('Nascimento')) {
+    if (compMatch && valMatch && !line.includes('Emissão') && !line.includes('Nascimento') && !line.includes('NIT')) {
         const competencia = formatCompetenciaToIso(compMatch[1]);
         const valor = parseCurrency(valMatch[1]);
         if (competencia && !isNaN(valor) && valor > 10) {
@@ -181,6 +190,18 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
 
     // Tenta identificar datas e tipo no bloco atual
     if (currentVinculo) {
+      // Procura por "Início: 01/01/2000" ou "Data Início: 01/01/2000"
+      const startMatch = line.match(/(?:Início|Data Início|Data de Início):\s*(\d{2}\/\d{2}\/\d{4})/i);
+      if (startMatch) {
+        currentVinculo.inicio = formatDateToIso(startMatch[1]);
+      }
+
+      // Procura por "Fim: 01/01/2000" ou "Data Fim: 01/01/2000"
+      const endMatch = line.match(/(?:Fim|Data Fim|Data de Fim|Término):\s*(\d{2}\/\d{2}\/\d{4})/i);
+      if (endMatch) {
+        currentVinculo.fim = formatDateToIso(endMatch[1]);
+      }
+
       const dates = line.match(dateRegex);
       
       if (line.toLowerCase().includes('especial') || 
