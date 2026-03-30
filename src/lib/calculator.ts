@@ -25,10 +25,10 @@ export function calcularPrevidencia(
   
   // 1. Calcular Tempo Total e Carência
   // Meses de contribuição: Map<competencia, info>
-  const mesesContribuicao = new Map<string, { especial: boolean; rural: boolean; valor: number }>();
+  const mesesContribuicao = new Map<string, { especial: boolean; rural: boolean; valor: number; tipo: string }>();
   
   vinculos.forEach(v => {
-    if (v.tipo === 'Rural' && v.inicio) {
+    if (v.inicio) {
       try {
         const start = startOfMonth(parseISO(v.inicio));
         const end = v.fim ? endOfMonth(parseISO(v.fim)) : endOfMonth(hoje);
@@ -38,24 +38,34 @@ export function calcularPrevidencia(
           interval.forEach(date => {
             const comp = format(date, 'yyyy-MM');
             const existing = mesesContribuicao.get(comp);
-            if (!existing) {
-              mesesContribuicao.set(comp, { especial: false, rural: true, valor: 0 });
+            
+            // Pega o salário se existir para esta competência
+            const salario = v.salarios.find(s => s.competencia === comp)?.valor || 0;
+
+            if (!existing || (!existing.especial && v.especial) || (existing.valor === 0 && salario > 0)) {
+              mesesContribuicao.set(comp, { 
+                especial: v.especial || existing?.especial || false, 
+                rural: v.tipo === 'Rural' || existing?.rural || false,
+                valor: salario || existing?.valor || 0,
+                tipo: v.tipo || existing?.tipo || 'Empregado'
+              });
             }
           });
         }
       } catch (e) {
-        console.error("Erro ao processar período rural:", e);
+        console.error("Erro ao processar período:", e);
       }
     } else {
+      // Fallback para quando só temos os salários mas não o período (raro no CNIS)
       v.salarios.forEach(s => {
         if (s.valor > 0) {
           const existing = mesesContribuicao.get(s.competencia);
-          // Se já existe e não é especial, mas o atual é, atualizamos para especial
           if (!existing || (!existing.especial && v.especial)) {
             mesesContribuicao.set(s.competencia, { 
               especial: !!v.especial, 
               rural: existing?.rural || false,
-              valor: s.valor
+              valor: s.valor,
+              tipo: v.tipo || existing?.tipo || 'Empregado'
             });
           }
         }
@@ -76,10 +86,22 @@ export function calcularPrevidencia(
     const isPosReforma = isAfter(dataComp, DATA_REFORMA);
 
     // Regra Pós-Reforma: Só conta se for >= Salário Mínimo (exceto rural)
-    // Nota: Simplificamos o mínimo histórico para fins de demonstração
+    // Para Empregado, se não houver valor no CNIS, assumimos que foi pago (presunção de recolhimento)
+    // a menos que seja explicitamente abaixo do mínimo.
     const valorMinimoHistorico = year >= 2024 ? 1412 : (year >= 2023 ? 1320 : 1000);
     
-    const contaParaTempo = !isPosReforma || info.rural || info.valor >= valorMinimoHistorico;
+    let contaParaTempo = true;
+    if (isPosReforma && !info.rural) {
+      if (info.tipo === 'Empregado') {
+        // Se for empregado e tiver valor, deve ser >= mínimo. 
+        // Se valor for 0, no CNIS de hoje em dia costuma vir o indicador PREC-MENOR-MIN se for abaixo.
+        // Aqui, se for 0, vamos assumir que conta (presunção) a menos que o usuário tenha inserido 0 manualmente.
+        contaParaTempo = info.valor === 0 || info.valor >= valorMinimoHistorico;
+      } else {
+        // Individual/Facultativo: PRECISA ter pago pelo menos o mínimo
+        contaParaTempo = info.valor >= valorMinimoHistorico;
+      }
+    }
 
     if (contaParaTempo) {
       tempoTotalDias += 30;
@@ -93,9 +115,21 @@ export function calcularPrevidencia(
         mesesEm2019++;
       }
 
-      // Carência: Rural antes de 1991 ou contribuições reais
-      if (!info.rural || (info.rural && year < 1991)) {
+      // Carência: 
+      // 1. Empregado: Sempre conta (se o tempo contar)
+      // 2. Rural: Só conta se for antes de 11/1991 ou se houver contribuição (valor > 0)
+      // 3. Individual/Facultativo: Só conta se houver contribuição (valor > 0)
+      if (info.tipo === 'Empregado') {
         carenciaMeses++;
+      } else if (info.rural) {
+        if (year < 1991 || (year === 1991 && month <= 10) || info.valor > 0) {
+          carenciaMeses++;
+        }
+      } else {
+        // Individual / Facultativo
+        if (info.valor > 0) {
+          carenciaMeses++;
+        }
       }
     }
   });

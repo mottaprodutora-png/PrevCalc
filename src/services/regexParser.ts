@@ -72,31 +72,31 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
       }
 
       if (dates && dates.length >= 1) {
-        // Se encontrarmos datas em uma linha que contém "Empregado", "Individual", etc.
         const lowerLine = line.toLowerCase();
+        
+        // Se ainda não temos data de início, pegamos a primeira data encontrada no bloco
+        if (!currentVinculo.inicio) {
+          currentVinculo.inicio = formatDateToIso(dates[0]);
+          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
+        }
+
+        // Tenta identificar o tipo se ainda for o padrão
         if (lowerLine.includes('empregado') || lowerLine.includes('agente público')) {
           currentVinculo.tipo = 'Empregado';
-          currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
         } else if (lowerLine.includes('contribuinte individual') || lowerLine.includes('autônomo')) {
           currentVinculo.tipo = 'Contribuinte Individual';
-          currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
         } else if (lowerLine.includes('facultativo')) {
           currentVinculo.tipo = 'Facultativo';
-          currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
         } else if (lowerLine.includes('rural') || lowerLine.includes('segurado especial')) {
           currentVinculo.tipo = 'Rural';
-          currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
         }
       }
       
       // Tenta capturar salários (Competência MM/AAAA e Valor)
       // O CNIS costuma listar vários salários em colunas ou linhas seguidas
       // Padrão comum: 01/2020 1.234,56 ou 01/2020 1234.56
-      const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s+([\d\.,]{4,15})/g);
+      // Também suporta valores com R$ ou apenas números
+      const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s+(?:R\$\s*)?([\d\.,]{4,15})/g);
       for (const match of salaryMatches) {
         const competencia = formatCompetenciaToIso(match[1]);
         const valor = parseCurrency(match[2]);
