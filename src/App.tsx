@@ -166,22 +166,29 @@ export default function App() {
     const text = textToProcess || importText;
     if (!text) return;
     setIsImporting(true);
+    console.log("Iniciando importação de texto CNIS...");
     try {
       // Tenta primeiro com Regex (Local, Grátis, Sem Chave)
       const regexResult = parseCnisWithRegex(text);
+      console.log("Resultado do parser local:", regexResult);
       
       if (regexResult.vinculos.length > 0) {
-        setVinculos([...vinculos, ...regexResult.vinculos]);
-        if (regexResult.nome && !nome) {
-          setNome(regexResult.nome);
+        // Filtra vínculos vazios ou inválidos
+        const validVinculos = regexResult.vinculos.filter(v => v.inicio || v.salarios?.length > 0);
+        if (validVinculos.length > 0) {
+          setVinculos([...vinculos, ...validVinculos]);
+          if (regexResult.nome && !nome) {
+            setNome(regexResult.nome);
+          }
+          setActiveTab('manual');
+          setImportText('');
+          setIsImporting(false);
+          return;
         }
-        setActiveTab('manual');
-        setImportText('');
-        setIsImporting(false);
-        return;
       }
 
       // Se o regex não encontrar nada, tenta com IA (Se a chave estiver configurada)
+      console.log("Parser local não encontrou dados suficientes. Tentando IA...");
       const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(text);
       
       if (error === 'API_KEY_MISSING') {
@@ -435,6 +442,17 @@ export default function App() {
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="font-bold text-lg text-brand-text">Vínculos e Períodos</h2>
                   <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        if (confirm("Tem certeza que deseja limpar todos os dados?")) {
+                          setVinculos([]);
+                          setNome('');
+                        }
+                      }}
+                      className="flex items-center gap-2 bg-white border border-red-200 text-red-500 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 transition-all"
+                    >
+                      <Trash2 size={14} /> Limpar
+                    </button>
                     {user && vinculos.length > 0 && (
                       <button 
                         onClick={saveCalculation}
@@ -479,7 +497,7 @@ export default function App() {
                               <Briefcase size={18} />
                             </div>
                             <h4 className="font-bold text-sm text-brand-text truncate max-w-[200px]">
-                              {v.empresa || 'Novo Vínculo'}
+                              {v.empresa && !v.empresa.toLowerCase().includes('cadastro nacional') ? v.empresa : 'Vínculo Identificado'}
                             </h4>
                           </div>
                           <button 

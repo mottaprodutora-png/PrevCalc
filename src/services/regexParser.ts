@@ -1,4 +1,4 @@
-import { parseISO, isBefore, isAfter } from "date-fns";
+import { parseISO, isBefore, isAfter, differenceInDays } from "date-fns";
 import { CnisVinculo } from "../types";
 
 export function parseCnisWithRegex(text: string): { nome?: string, vinculos: CnisVinculo[] } {
@@ -31,6 +31,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
   let currentVinculo: Partial<CnisVinculo> | null = null;
+  const hoje = new Date();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -63,26 +64,28 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
         // Tenta pegar o nome da empresa na mesma linha
         let lineWithoutCnpj = line.replace(match![0], '').replace(/^\d+\s+/, '').trim();
         
-        // Filtra nomes que são apenas cabeçalhos do CNIS
-        const isHeader = (text: string) => 
+        // Filtra nomes que são apenas cabeçalhos do CNIS ou informações genéricas
+        const isInvalidName = (text: string) => 
           text.toLowerCase().includes('cadastro nacional') || 
           text.toLowerCase().includes('extrato do cnis') ||
           text.toLowerCase().includes('inss') ||
+          text.toLowerCase().includes('página') ||
+          text.toLowerCase().includes('emissão') ||
           text.length < 3;
 
-        if (isHeader(lineWithoutCnpj)) {
+        if (isInvalidName(lineWithoutCnpj)) {
           lineWithoutCnpj = '';
         }
 
         // Se a linha tiver pouco conteúdo, tenta a linha anterior ou posterior
         if (!lineWithoutCnpj) {
-          // Tenta linha anterior (muitas vezes o nome vem ANTES do CNPJ no PDF)
-          if (i > 0 && lines[i-1].length > 5 && !lines[i-1].match(dateRegex) && !lines[i-1].match(cnpjRegex) && !isHeader(lines[i-1])) {
-            lineWithoutCnpj = lines[i-1];
-          } 
-          // Tenta linha posterior
-          else if (i + 1 < lines.length && lines[i+1].length > 5 && !lines[i+1].match(dateRegex) && !isHeader(lines[i+1])) {
-            lineWithoutCnpj = lines[i+1];
+          // Procura nas 2 linhas anteriores e 2 posteriores
+          const candidates = [lines[i-1], lines[i-2], lines[i+1], lines[i+2]];
+          for (const cand of candidates) {
+            if (cand && cand.length > 5 && !cand.match(dateRegex) && !cand.match(cnpjRegex) && !isInvalidName(cand)) {
+              lineWithoutCnpj = cand;
+              break;
+            }
           }
         }
         
@@ -93,15 +96,16 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     }
 
     // Tenta capturar salários (Competência MM/AAAA e Valor)
-    // Exige que o valor tenha pelo menos 4 caracteres (ex: 1.000,00 ou 1000) para evitar pegar dias do mês
     const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s*(?:R\$\s*)?([\d\.,]{4,15})/g);
-    let foundSalary = false;
     for (const match of salaryMatches) {
       const competencia = formatCompetenciaToIso(match[1]);
       const valor = parseCurrency(match[2]);
-      if (competencia && !isNaN(valor) && valor > 0) { // Removido filtro de > 100 para capturar valores reais baixos
-        foundSalary = true;
-        // Se não houver vínculo ativo, cria um genérico
+      
+      // Validação extra: se a competência for muito próxima de hoje, pode ser a data de emissão
+      const compDate = parseISO(competencia + '-01');
+      const isTooRecent = differenceInDays(hoje, compDate) < 30;
+
+      if (competencia && !isNaN(valor) && valor > 10 && !isTooRecent) {
         if (!currentVinculo) {
           currentVinculo = {
             id: Math.random().toString(36).substr(2, 9),
@@ -131,38 +135,44 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
       }
 
       if (dates && dates.length >= 1) {
-        const lowerLine = line.toLowerCase();
-        
-        const d1 = formatDateToIso(dates[0]);
-        const d2 = dates.length > 1 ? formatDateToIso(dates[1]) : null;
+        // Filtra datas que são muito recentes (provavelmente data de emissão do documento)
+        const validDates = dates.filter(d => {
+          const dt = parseISO(formatDateToIso(d));
+          return differenceInDays(hoje, dt) > 5; // Ignora datas de hoje ou ontem
+        });
 
-        if (!currentVinculo.inicio) {
-          // Se temos duas datas, a menor é o início
-          if (d2) {
-            const date1 = parseISO(d1);
-            const date2 = parseISO(d2);
-            if (isBefore(date1, date2)) {
-              currentVinculo.inicio = d1;
-              currentVinculo.fim = d2;
+        if (validDates.length >= 1) {
+          const d1 = formatDateToIso(validDates[0]);
+          const d2 = validDates.length > 1 ? formatDateToIso(validDates[1]) : null;
+
+          if (!currentVinculo.inicio) {
+            if (d2) {
+              const date1 = parseISO(d1);
+              const date2 = parseISO(d2);
+              if (isBefore(date1, date2)) {
+                currentVinculo.inicio = d1;
+                currentVinculo.fim = d2;
+              } else {
+                currentVinculo.inicio = d2;
+                currentVinculo.fim = d1;
+              }
             } else {
-              currentVinculo.inicio = d2;
-              currentVinculo.fim = d1;
+              currentVinculo.inicio = d1;
             }
-          } else {
-            currentVinculo.inicio = d1;
-          }
-        } else if (dates.length >= 1 && !currentVinculo.fim) {
-          const possibleEnd = formatDateToIso(dates[dates.length - 1]);
-          if (possibleEnd !== currentVinculo.inicio) {
-            const start = parseISO(currentVinculo.inicio);
-            const end = parseISO(possibleEnd);
-            if (isAfter(end, start)) {
-              currentVinculo.fim = possibleEnd;
+          } else if (!currentVinculo.fim) {
+            const possibleEnd = formatDateToIso(validDates[validDates.length - 1]);
+            if (possibleEnd !== currentVinculo.inicio) {
+              const start = parseISO(currentVinculo.inicio);
+              const end = parseISO(possibleEnd);
+              if (isAfter(end, start)) {
+                currentVinculo.fim = possibleEnd;
+              }
             }
           }
         }
 
         // Tenta identificar o tipo se ainda for o padrão
+        const lowerLine = line.toLowerCase();
         if (lowerLine.includes('empregado') || lowerLine.includes('agente público')) {
           currentVinculo.tipo = 'Empregado';
         } else if (lowerLine.includes('contribuinte individual') || lowerLine.includes('autônomo')) {
