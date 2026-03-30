@@ -42,12 +42,21 @@ export function calcularPrevidencia(
             // Pega o salário se existir para esta competência
             const salario = v.salarios.find(s => s.competencia === comp)?.valor || 0;
 
-            if (!existing || (!existing.especial && v.especial) || (existing.valor === 0 && salario > 0)) {
+            if (!existing) {
               mesesContribuicao.set(comp, { 
-                especial: v.especial || existing?.especial || false, 
-                rural: v.tipo === 'Rural' || existing?.rural || false,
-                valor: salario || existing?.valor || 0,
-                tipo: v.tipo || existing?.tipo || 'Empregado'
+                especial: v.especial || false, 
+                rural: v.tipo === 'Rural' || false,
+                valor: salario,
+                tipo: v.tipo || 'Empregado'
+              });
+            } else {
+              // Soma os salários se houver sobreposição (limitado ao teto na prática, mas aqui somamos tudo)
+              // Prioriza o tipo 'Empregado' se houver conflito, pois tem presunção de recolhimento
+              mesesContribuicao.set(comp, {
+                especial: existing.especial || v.especial,
+                rural: existing.rural || (v.tipo === 'Rural'),
+                valor: existing.valor + salario,
+                tipo: existing.tipo === 'Empregado' ? 'Empregado' : (v.tipo || existing.tipo)
               });
             }
           });
@@ -60,12 +69,19 @@ export function calcularPrevidencia(
       v.salarios.forEach(s => {
         if (s.valor > 0) {
           const existing = mesesContribuicao.get(s.competencia);
-          if (!existing || (!existing.especial && v.especial)) {
+          if (!existing) {
             mesesContribuicao.set(s.competencia, { 
               especial: !!v.especial, 
-              rural: existing?.rural || false,
+              rural: v.tipo === 'Rural',
               valor: s.valor,
-              tipo: v.tipo || existing?.tipo || 'Empregado'
+              tipo: v.tipo || 'Empregado'
+            });
+          } else {
+            mesesContribuicao.set(s.competencia, {
+              especial: existing.especial || !!v.especial,
+              rural: existing.rural || (v.tipo === 'Rural'),
+              valor: existing.valor + s.valor,
+              tipo: existing.tipo === 'Empregado' ? 'Empregado' : (v.tipo || existing.tipo)
             });
           }
         }
