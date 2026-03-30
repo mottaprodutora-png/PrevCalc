@@ -67,10 +67,18 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   // Padrão para identificar competências e salários em tabelas
   const competenceRegex = /(\d{2}\/\d{4})/g;
 
+  // Flag para saber se já entramos na seção de vínculos
+  let inVinculosSection = false;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
     
+    // Detecta início da seção de vínculos
+    if (lowerLine.includes('relações previdenciárias') || lowerLine.includes('detalhamento dos vínculos')) {
+      inVinculosSection = true;
+    }
+
     // Ignora linhas que são claramente cabeçalhos de página
     if (lowerLine.includes('cadastro nacional') || lowerLine.includes('extrato do cnis') || lowerLine.includes('página:')) {
       continue;
@@ -89,8 +97,10 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     const labelMatch = line.match(/^(?:Vínculo|Seq|Link|Item):\s*(\d+)/i);
     // Padrão 6: "Empregador: NOME"
     const employerMatch = line.match(/Empregador:\s*([A-Z\s]{5,100})/i);
+    // Padrão 7: Linha que começa com número e tem cara de vínculo
+    const startNumMatch = line.match(/^(\d+)\s+([A-Z\s]{5,50})/);
     
-    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento);
+    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento) || (inVinculosSection && startNumMatch);
 
     if (isNewLink) {
       // Se já tínhamos um vínculo sendo processado, salvamos
@@ -274,10 +284,36 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     }
   }
 
-  // Adiciona o último vínculo se existir
-  if (currentVinculo && currentVinculo.empresa && currentVinculo.inicio) {
-    result.vinculos.push(currentVinculo as CnisVinculo);
+  // Salva o último vínculo se existir
+  if (currentVinculo && (currentVinculo.empresa || currentVinculo.inicio || currentVinculo.salarios?.length)) {
+    // Verifica se já não foi adicionado (evita duplicatas se o loop terminou em um isNewLink)
+    if (!result.vinculos.some(v => v.id === currentVinculo?.id)) {
+      result.vinculos.push(currentVinculo as CnisVinculo);
+    }
   }
+
+  // Pós-processamento: Limpar vínculos vazios, duplicados e ordenar
+  const uniqueVinculos = new Map<string, CnisVinculo>();
+  
+  result.vinculos.forEach(v => {
+    // Cria uma chave baseada em empresa e início para evitar duplicatas reais
+    const key = `${v.empresa}-${v.inicio}`;
+    if (!uniqueVinculos.has(key) || (v.salarios?.length || 0) > (uniqueVinculos.get(key)?.salarios?.length || 0)) {
+      uniqueVinculos.set(key, v);
+    }
+  });
+
+  result.vinculos = Array.from(uniqueVinculos.values())
+    .filter(v => v.inicio || v.empresa !== 'Vínculo não identificado' || v.salarios?.length)
+    .sort((a, b) => {
+      if (!a.inicio) return 1;
+      if (!b.inicio) return -1;
+      try {
+        return parseISO(b.inicio).getTime() - parseISO(a.inicio).getTime();
+      } catch (e) {
+        return 0;
+      }
+    });
 
   return result;
 }
