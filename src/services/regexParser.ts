@@ -74,33 +74,27 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     const line = lines[i];
     const lowerLine = line.toLowerCase();
     
-    // Detecta início da seção de vínculos
-    if (lowerLine.includes('relações previdenciárias') || lowerLine.includes('detalhamento dos vínculos')) {
+    // Detecta início da seção de vínculos, mas não bloqueia se não encontrar
+    if (lowerLine.includes('relações previdenciárias') || lowerLine.includes('detalhamento dos vínculos') || lowerLine.includes('dados do vínculo')) {
       inVinculosSection = true;
     }
 
-    // Ignora linhas que são claramente cabeçalhos de página
-    if (lowerLine.includes('cadastro nacional') || lowerLine.includes('extrato do cnis') || lowerLine.includes('página:')) {
+    // Ignora linhas que são claramente cabeçalhos de página ou rodapés inúteis
+    if (lowerLine.includes('cadastro nacional') || lowerLine.includes('extrato do cnis') || lowerLine.includes('página:') || lowerLine.includes('www.inss.gov.br')) {
       continue;
     }
     
-    // Tenta identificar o início de um vínculo
-    // Padrão 1: CNPJ/CEI
+    // Tenta identificar o início de um vínculo - Padrões muito mais abertos
     const cnpjMatch = line.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{2}\.\d{3}\.\d{5}\/\d{2})/);
-    // Padrão 2: NIT
     const nitMatch = line.match(/(?:NIT|PIS|PASEP):\s*(\d{3}\.\d{5}\.\d{2}-\d{1})/) || line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); 
-    // Padrão 3: Sequencial de vínculo (ex: "1 21.234.567/0001-00")
     const seqMatch = line.match(/^(\d+)\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
-    // Padrão 4: Sequencial seguido de data (ex: "1 01/01/2000")
     const seqDateMatch = line.match(/^(\d+)\s+(\d{2}\/\d{2}\/\d{4})/);
-    // Padrão 5: "Vínculo: X" ou "Seq: X"
-    const labelMatch = line.match(/^(?:Vínculo|Seq|Link|Item):\s*(\d+)/i);
-    // Padrão 6: "Empregador: NOME"
-    const employerMatch = line.match(/Empregador:\s*([A-Z\s]{5,100})/i);
-    // Padrão 7: Linha que começa com número e tem cara de vínculo
-    const startNumMatch = line.match(/^(\d+)\s+([A-Z\s]{5,50})/);
+    const labelMatch = line.match(/^(?:Vínculo|Seq|Link|Item|Nº):\s*(\d+)/i);
+    const employerMatch = line.match(/(?:Empregador|Empresa|Orgão):\s*([A-Z0-9\s\.\-\/]{5,100})/i);
+    // Padrão genérico: Número seguido de texto em maiúsculo (comum em listas de vínculos)
+    const genericStartMatch = line.match(/^(\d+)\s+([A-Z][A-Z\s\.\-\/]{5,50})/);
     
-    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento) || (inVinculosSection && startNumMatch);
+    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento) || genericStartMatch;
 
     if (isNewLink) {
       // Se já tínhamos um vínculo sendo processado, salvamos
@@ -108,17 +102,29 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
         result.vinculos.push(currentVinculo as CnisVinculo);
       }
       
+      const id = Math.random().toString(36).substr(2, 9);
+      let empresa = 'Vínculo não identificado';
+      
+      if (employerMatch) empresa = employerMatch[1].trim();
+      else if (cnpjMatch) {
+        // Tenta pegar o nome que costuma vir antes ou depois do CNPJ na mesma linha
+        const namePart = line.replace(cnpjMatch[0], '').replace(/^\d+\s+/, '').trim();
+        if (namePart.length > 3) empresa = namePart;
+      } else if (genericStartMatch) {
+        empresa = genericStartMatch[2].trim();
+      }
+
       currentVinculo = {
-        id: Math.random().toString(36).substr(2, 9),
-        empresa: '',
+        id,
+        empresa,
         inicio: '',
-        tipo: (cnpjMatch || seqMatch || labelMatch || employerMatch) ? 'Empregado' : 'Contribuinte Individual',
+        tipo: (cnpjMatch || seqMatch || labelMatch || employerMatch || genericStartMatch) ? 'Empregado' : 'Contribuinte Individual',
         especial: false,
         salarios: []
       };
 
-      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch) {
-        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch;
+      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch || genericStartMatch) {
+        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch || genericStartMatch;
         // Tenta pegar o nome da empresa na mesma linha
         let lineWithoutCnpj = line.replace(match![0], '').replace(/^(?:Vínculo|Seq|Link|Item|Empregador):\s*\d*/i, '').replace(/^\d+\s+/, '').trim();
         
@@ -296,8 +302,13 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   const uniqueVinculos = new Map<string, CnisVinculo>();
   
   result.vinculos.forEach(v => {
+    // Se não tem empresa nem início, ignora
+    if (v.empresa === 'Vínculo não identificado' && !v.inicio && (!v.salarios || v.salarios.length === 0)) {
+      return;
+    }
+
     // Cria uma chave baseada em empresa e início para evitar duplicatas reais
-    const key = `${v.empresa}-${v.inicio}`;
+    const key = `${v.empresa}-${v.inicio || 'sem-data'}`;
     if (!uniqueVinculos.has(key) || (v.salarios?.length || 0) > (uniqueVinculos.get(key)?.salarios?.length || 0)) {
       uniqueVinculos.set(key, v);
     }
