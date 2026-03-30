@@ -195,7 +195,10 @@ export default function App() {
       const { nome: importedNome, dataNascimento: importedDataNascimento, vinculos: importedVinculos, error } = await parseCnisText(text);
       
       if (error === 'API_KEY_MISSING') {
-        alert("Não foi possível extrair dados localmente. Para usar a extração via IA, você precisa configurar a GEMINI_API_KEY no Vercel.");
+        console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
+        if (regexResult.vinculos.length === 0) {
+          alert("Não foi possível extrair dados automaticamente. Tente copiar o texto novamente ou preencher manualmente.");
+        }
         return;
       }
 

@@ -55,6 +55,9 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   const emissionMatch = text.match(/(?:Emissão|Processamento|Gerado em):\s*(\d{2}\/\d{2}\/\d{4})/i);
   if (emissionMatch) headerDates.push(formatDateToIso(emissionMatch[1]));
 
+  // Padrão para identificar competências e salários em tabelas
+  const competenceRegex = /(\d{2}\/\d{4})/g;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
@@ -75,8 +78,10 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     const seqDateMatch = line.match(/^(\d+)\s+(\d{2}\/\d{2}\/\d{4})/);
     // Padrão 5: "Vínculo: X" ou "Seq: X"
     const labelMatch = line.match(/^(?:Vínculo|Seq|Link|Item):\s*(\d+)/i);
+    // Padrão 6: "Empregador: NOME"
+    const employerMatch = line.match(/Empregador:\s*([A-Z\s]{5,100})/i);
     
-    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento);
+    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento);
 
     if (isNewLink) {
       // Se já tínhamos um vínculo sendo processado, salvamos
@@ -88,15 +93,15 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
         id: Math.random().toString(36).substr(2, 9),
         empresa: '',
         inicio: '',
-        tipo: (cnpjMatch || seqMatch || labelMatch) ? 'Empregado' : 'Contribuinte Individual',
+        tipo: (cnpjMatch || seqMatch || labelMatch || employerMatch) ? 'Empregado' : 'Contribuinte Individual',
         especial: false,
         salarios: []
       };
 
-      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch) {
-        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch;
+      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch) {
+        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch;
         // Tenta pegar o nome da empresa na mesma linha
-        let lineWithoutCnpj = line.replace(match![0], '').replace(/^(?:Vínculo|Seq|Link|Item):\s*\d+/i, '').replace(/^\d+\s+/, '').trim();
+        let lineWithoutCnpj = line.replace(match![0], '').replace(/^(?:Vínculo|Seq|Link|Item|Empregador):\s*\d*/i, '').replace(/^\d+\s+/, '').trim();
         
         // Filtra nomes que são apenas cabeçalhos do CNIS ou informações genéricas
         const isInvalidName = (text: string) => 
@@ -132,6 +137,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     }
 
     // Tenta capturar salários (Competência MM/AAAA e Valor)
+    // Padrão 1: MM/AAAA Valor
     const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s*(?:R\$\s*)?([\d\.,]{4,15})/g);
     for (const match of salaryMatches) {
       const competencia = formatCompetenciaToIso(match[1]);
@@ -157,6 +163,20 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
           currentVinculo.salarios?.push({ competencia, valor });
         }
       }
+    }
+
+    // Padrão 2: Tabela de salários (Competência em uma coluna, valor em outra)
+    // Se a linha contém apenas uma competência e um valor em posições distantes
+    const compMatch = line.match(/(\d{2}\/\d{4})/);
+    const valMatch = line.match(/(?:R\$\s*)?([\d\.,]{4,15})/);
+    if (compMatch && valMatch && !line.includes('Emissão') && !line.includes('Nascimento')) {
+        const competencia = formatCompetenciaToIso(compMatch[1]);
+        const valor = parseCurrency(valMatch[1]);
+        if (competencia && !isNaN(valor) && valor > 10) {
+            if (currentVinculo && !currentVinculo.salarios?.some(s => s.competencia === competencia)) {
+                currentVinculo.salarios?.push({ competencia, valor });
+            }
+        }
     }
 
     // Tenta identificar datas e tipo no bloco atual
