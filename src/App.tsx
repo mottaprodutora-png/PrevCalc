@@ -20,7 +20,8 @@ import {
   LogIn,
   LogOut,
   Save,
-  History
+  History,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CnisVinculo, CalculoResultado } from './types';
@@ -161,12 +162,13 @@ export default function App() {
     setVinculos(vinculos.map(v => v.id === id ? { ...v, ...updates } : v));
   };
 
-  const handleImport = async () => {
-    if (!importText) return;
+  const handleImport = async (textToProcess?: string) => {
+    const text = textToProcess || importText;
+    if (!text) return;
     setIsImporting(true);
     try {
       // Tenta primeiro com Regex (Local, Grátis, Sem Chave)
-      const regexResult = parseCnisWithRegex(importText);
+      const regexResult = parseCnisWithRegex(text);
       
       if (regexResult.vinculos.length > 0) {
         setVinculos([...vinculos, ...regexResult.vinculos]);
@@ -180,7 +182,7 @@ export default function App() {
       }
 
       // Se o regex não encontrar nada, tenta com IA (Se a chave estiver configurada)
-      const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(importText);
+      const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(text);
       
       if (error === 'API_KEY_MISSING') {
         alert("Não foi possível extrair dados localmente. Para usar a extração via IA, você precisa configurar a GEMINI_API_KEY no Vercel.");
@@ -232,6 +234,10 @@ export default function App() {
         });
       }
       setImportText(text);
+      // Processa automaticamente após o upload
+      if (text.trim()) {
+        handleImport(text);
+      }
     } catch (error) {
       console.error("Erro ao ler arquivo:", error);
       alert("Não foi possível ler o arquivo. Tente copiar e colar o texto manualmente.");
@@ -687,7 +693,7 @@ export default function App() {
                 
                 <div className="bg-white border border-brand-border rounded-xl p-6 shadow-sm space-y-5">
                   <p className="text-xs text-brand-muted leading-relaxed">
-                    Copie e cole o texto do seu extrato CNIS (PDF baixado do gov.br) ou carregue o arquivo para processamento automático via IA.
+                    Copie e cole o texto do seu extrato CNIS ou carregue o arquivo para processamento automático (Local + IA).
                   </p>
                   
                   <textarea 
@@ -699,11 +705,11 @@ export default function App() {
 
                   <div className="flex flex-col gap-4">
                     <button 
-                      onClick={handleImport}
+                      onClick={() => handleImport()}
                       disabled={!importText || isImporting}
                       className="w-full bg-brand-primary text-white py-3.5 rounded-xl text-xs font-bold hover:bg-brand-primary/90 transition-all disabled:opacity-50 shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
                     >
-                      {isImporting ? <Clock className="animate-spin" size={16} /> : <Calculator size={16} />}
+                      {isImporting ? <Clock className="animate-spin" size={16} /> : <Zap size={16} />}
                       Processar Dados (Local + IA)
                     </button>
                     
@@ -735,10 +741,15 @@ export default function App() {
                             <FileText className="text-brand-muted group-hover:text-brand-primary transition-all" size={24} />
                           </div>
                           <p className="text-xs font-bold text-brand-text">Carregar PDF / CSV</p>
-                          <p className="text-[10px] text-brand-muted mt-1">Arraste ou clique para selecionar</p>
+                          <p className="text-[10px] text-brand-muted mt-1">Processamento Local Prioritário (Sem Chave)</p>
                         </>
                       )}
                     </label>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-[10px] text-brand-muted bg-brand-bg p-3 rounded-lg border border-brand-border">
+                    <ShieldCheck size={14} className="text-green-500" />
+                    <span>Seus dados são processados localmente no navegador. A IA é usada apenas como fallback se a extração local falhar.</span>
                   </div>
                 </div>
 

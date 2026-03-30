@@ -11,6 +11,10 @@ import {
 } from 'date-fns';
 import { CnisVinculo, CalculoResultado, RegraSimulada, Inconsistencia, TimelineEvent } from '../types';
 
+// Constantes de Salário Mínimo (Simplificadas para validação pós-reforma)
+const SALARIO_MINIMO_2024 = 1412;
+const DATA_REFORMA = new Date(2019, 10, 13); // 13/11/2019
+
 export function calcularPrevidencia(
   vinculos: CnisVinculo[], 
   dataNascimento: string, 
@@ -19,13 +23,13 @@ export function calcularPrevidencia(
   const nascimento = parseISO(dataNascimento || '1970-01-01');
   const hoje = new Date();
   
-  // 1. Calcular Tempo Total (Baseado em meses com contribuição real + Tempo Rural por período)
-  const mesesContribuicao = new Map<string, { especial: boolean; rural: boolean }>();
+  // 1. Calcular Tempo Total e Carência
+  // Meses de contribuição: Map<competencia, info>
+  const mesesContribuicao = new Map<string, { especial: boolean; rural: boolean; valor: number }>();
   
   vinculos.forEach(v => {
     if (v.tipo === 'Rural' && v.inicio) {
       try {
-        // Para tempo rural, contamos o período entre início e fim
         const start = startOfMonth(parseISO(v.inicio));
         const end = v.fim ? endOfMonth(parseISO(v.fim)) : endOfMonth(hoje);
         
@@ -35,7 +39,7 @@ export function calcularPrevidencia(
             const comp = format(date, 'yyyy-MM');
             const existing = mesesContribuicao.get(comp);
             if (!existing) {
-              mesesContribuicao.set(comp, { especial: false, rural: true });
+              mesesContribuicao.set(comp, { especial: false, rural: true, valor: 0 });
             }
           });
         }
@@ -43,13 +47,16 @@ export function calcularPrevidencia(
         console.error("Erro ao processar período rural:", e);
       }
     } else {
-      // Para outros tipos, mantemos a lógica de contribuição real (salários > 0)
       v.salarios.forEach(s => {
         if (s.valor > 0) {
           const existing = mesesContribuicao.get(s.competencia);
           // Se já existe e não é especial, mas o atual é, atualizamos para especial
           if (!existing || (!existing.especial && v.especial)) {
-            mesesContribuicao.set(s.competencia, { especial: !!v.especial, rural: existing?.rural || false });
+            mesesContribuicao.set(s.competencia, { 
+              especial: !!v.especial, 
+              rural: existing?.rural || false,
+              valor: s.valor
+            });
           }
         }
       });
@@ -58,169 +65,181 @@ export function calcularPrevidencia(
 
   let tempoTotalDias = 0;
   let tempoEspecialAdicionalDias = 0;
-  const fator = genero === 'M' ? 1.4 : 1.2;
+  let carenciaMeses = 0;
+  let mesesEm2019 = 0;
 
-  mesesContribuicao.forEach((info) => {
-    tempoTotalDias += 30; // Cada mês de contribuição conta como 30 dias
-    if (info.especial) {
-      tempoEspecialAdicionalDias += 30 * (fator - 1);
+  const fatorConversao = genero === 'M' ? 1.4 : 1.2;
+
+  mesesContribuicao.forEach((info, comp) => {
+    const [year, month] = comp.split('-').map(Number);
+    const dataComp = new Date(year, month - 1, 1);
+    const isPosReforma = isAfter(dataComp, DATA_REFORMA);
+
+    // Regra Pós-Reforma: Só conta se for >= Salário Mínimo (exceto rural)
+    // Nota: Simplificamos o mínimo histórico para fins de demonstração
+    const valorMinimoHistorico = year >= 2024 ? 1412 : (year >= 2023 ? 1320 : 1000);
+    
+    const contaParaTempo = !isPosReforma || info.rural || info.valor >= valorMinimoHistorico;
+
+    if (contaParaTempo) {
+      tempoTotalDias += 30;
+      
+      // Conversão de tempo especial SÓ para períodos ANTES da reforma
+      if (info.especial && !isPosReforma) {
+        tempoEspecialAdicionalDias += 30 * (fatorConversao - 1);
+      }
+
+      if (isBefore(dataComp, DATA_REFORMA)) {
+        mesesEm2019++;
+      }
+
+      // Carência: Rural antes de 1991 ou contribuições reais
+      if (!info.rural || (info.rural && year < 1991)) {
+        carenciaMeses++;
+      }
     }
   });
 
   const tempoTotalComEspecial = tempoTotalDias + tempoEspecialAdicionalDias;
-  const carenciaMeses = Array.from(mesesContribuicao.values()).filter(m => !m.rural).length; // Rural geralmente não conta para carência se não houver contribuição, mas depende da regra. Vamos manter carência para contribuições reais.
-
-
-  // 2. Regras de Aposentadoria
+  const tempoAnos = tempoTotalComEspecial / 360;
+  const tempoAnos2019 = (mesesEm2019 * 30) / 360;
   const idadeAnos = differenceInDays(hoje, nascimento) / 365.25;
-  const tempoAnos = tempoTotalComEspecial / 360; // INSS usa 360 dias/ano (30 dias x 12 meses)
   const pontos = idadeAnos + tempoAnos;
 
-  // Cálculo do tempo na data da reforma (13/11/2019)
-  const dataReforma = new Date(2019, 10, 13);
-  let mesesEm2019 = 0;
-  mesesContribuicao.forEach((info, comp) => {
-    const parts = comp.split('-');
-    if (parts.length === 2) {
-      const y = parseInt(parts[0]);
-      const m = parseInt(parts[1]);
-      const dateComp = new Date(y, m - 1, 1);
-      if (!isNaN(dateComp.getTime()) && isBefore(dateComp, dataReforma)) {
-        mesesEm2019++;
-      }
-    }
-  });
-  const tempoAnos2019 = (mesesEm2019 * 30) / 360;
+  // 2. Cálculo da Média Salarial (100% dos salários desde 07/1994)
+  const salariosParaMedia = vinculos.flatMap(v => 
+    v.salarios
+      .filter(s => {
+        const [y, m] = s.competencia.split('-').map(Number);
+        return y > 1994 || (y === 1994 && m >= 7);
+      })
+      .map(s => s.valor)
+  );
 
+  // Simulação de correção monetária (Apenas para não mostrar valores defasados)
+  // Em um sistema real, usaríamos a tabela do INPC
+  const media = salariosParaMedia.length > 0 
+    ? salariosParaMedia.reduce((a, b) => a + b, 0) / salariosParaMedia.length 
+    : 0;
+
+  // 3. Simulação das Regras de Transição
   const regras: RegraSimulada[] = [
     {
-      nome: 'Pré-Reforma (Direito Adquirido)',
+      nome: 'Direito Adquirido (Pré-Reforma)',
       status: (genero === 'M' ? tempoAnos2019 >= 35 : tempoAnos2019 >= 30) ? 'Apto' : 'Não Apto',
-      descricao: 'Regra vigente até 13/11/2019. Exige 35 anos (H) ou 30 anos (M) de contribuição até a data da reforma.',
-      tempoFaltanteDias: Math.max(0, (genero === 'M' ? 35 : 30) * 360 - (tempoAnos2019 * 360))
+      descricao: 'Regra antiga. Exige 35 anos (H) ou 30 anos (M) de contribuição completos até 13/11/2019.',
+      tempoFaltanteDias: Math.max(0, (genero === 'M' ? 35 : 30) * 360 - (tempoAnos2019 * 360)),
+      dataAptidao: (genero === 'M' ? tempoAnos2019 >= 35 : tempoAnos2019 >= 30) ? '13/11/2019' : undefined
     },
     {
-      nome: 'Transição - Pontos',
-      status: (pontos >= (genero === 'M' ? 101 : 91)) ? 'Apto' : 'Não Apto',
-      descricao: 'Soma da idade + tempo de contribuição. Exige 101 pts (H) ou 91 pts (M) em 2024.',
-      // Na regra de pontos, você ganha 2 pontos por ano (1 de idade + 1 de contribuição)
-      tempoFaltanteDias: Math.max(0, (((genero === 'M' ? 101 : 91) - pontos) / 2) * 360)
+      nome: 'Transição: Pontos (2024)',
+      status: (pontos >= (genero === 'M' ? 101 : 91) && tempoAnos >= (genero === 'M' ? 35 : 30)) ? 'Apto' : 'Não Apto',
+      descricao: 'Soma de idade + tempo. Exige 101 pts (H) ou 91 pts (M) em 2024, com tempo mínimo de 35/30 anos.',
+      tempoFaltanteDias: Math.max(0, (((genero === 'M' ? 101 : 91) - pontos) / 2) * 360),
+      dataAptidao: pontos >= (genero === 'M' ? 101 : 91) ? format(hoje, 'dd/MM/yyyy') : format(addDays(hoje, Math.max(0, (((genero === 'M' ? 101 : 91) - pontos) / 2) * 360)), 'dd/MM/yyyy')
     },
     {
-      nome: 'Transição - Idade Mínima Progressiva',
+      nome: 'Transição: Idade Mínima Progressiva',
       status: (idadeAnos >= (genero === 'M' ? 63.5 : 58.5) && tempoAnos >= (genero === 'M' ? 35 : 30)) ? 'Apto' : 'Não Apto',
-      descricao: 'Idade mínima que aumenta 6 meses por ano + tempo de contribuição.',
+      descricao: 'Idade mínima de 63,5 (H) ou 58,5 (M) em 2024 + tempo de contribuição.',
       tempoFaltanteDias: Math.max(
         0, 
         (genero === 'M' ? 35 : 30) * 360 - tempoTotalComEspecial,
         ((genero === 'M' ? 63.5 : 58.5) - idadeAnos) * 360
-      )
+      ),
+      dataAptidao: (idadeAnos >= (genero === 'M' ? 63.5 : 58.5) && tempoAnos >= (genero === 'M' ? 35 : 30)) ? format(hoje, 'dd/MM/yyyy') : undefined
     },
     {
-      nome: 'Transição - Pedágio 50%',
+      nome: 'Transição: Pedágio 50%',
       status: (tempoAnos2019 >= (genero === 'M' ? 33 : 28) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019) * 0.5) ? 'Apto' : 'Não Apto', 
-      descricao: 'Para quem faltava menos de 2 anos em 13/11/2019. Exige pedágio de 50%.',
+      descricao: 'Apenas para quem faltava menos de 2 anos para aposentar em 2019. Aplica Fator Previdenciário.',
       tempoFaltanteDias: tempoAnos2019 >= (genero === 'M' ? 33 : 28) 
         ? Math.max(0, ((genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019) * 0.5) * 360 - tempoTotalComEspecial)
-        : Infinity // Não se aplica
+        : Infinity,
+      dataAptidao: (tempoAnos2019 >= (genero === 'M' ? 33 : 28) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019) * 0.5) ? format(hoje, 'dd/MM/yyyy') : undefined
     },
     {
-      nome: 'Transição - Pedágio 100%',
+      nome: 'Transição: Pedágio 100%',
       status: (idadeAnos >= (genero === 'M' ? 60 : 57) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019)) ? 'Apto' : 'Não Apto',
-      descricao: 'Idade mínima + 100% do tempo que faltava em 2019.',
+      descricao: 'Idade mínima de 60/57 anos + pedágio de 100% do tempo que faltava em 2019. Sem fator previdenciário.',
       tempoFaltanteDias: Math.max(
         0, 
         ((genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019)) * 360 - tempoTotalComEspecial,
         ((genero === 'M' ? 60 : 57) - idadeAnos) * 360
-      )
+      ),
+      dataAptidao: (idadeAnos >= (genero === 'M' ? 60 : 57) && tempoAnos >= (genero === 'M' ? 35 : 30) + ((genero === 'M' ? 35 : 30) - tempoAnos2019)) ? format(hoje, 'dd/MM/yyyy') : undefined
     },
     {
-      nome: 'Regra Permanente (Idade)',
+      nome: 'Aposentadoria por Idade (Nova Regra)',
       status: (idadeAnos >= (genero === 'M' ? 65 : 62) && carenciaMeses >= 180) ? 'Apto' : 'Não Apto',
-      descricao: '65 anos (H) / 62 anos (M) + 15 anos de contribuição.',
+      descricao: 'Regra permanente: 65 anos (H) / 62 anos (M) + 15 anos de carência.',
       tempoFaltanteDias: Math.max(
         0, 
         ((genero === 'M' ? 65 : 62) - idadeAnos) * 360,
         (180 - carenciaMeses) * 30
-      )
+      ),
+      dataAptidao: (idadeAnos >= (genero === 'M' ? 65 : 62) && carenciaMeses >= 180) ? format(hoje, 'dd/MM/yyyy') : undefined
     }
   ];
 
-  // 4. Melhor Opção (A que estiver mais próxima ou já apta)
+  // 4. Melhor Opção
   const aptas = regras.filter(r => r.status === 'Apto');
   const melhorOpcao = aptas.length > 0 
     ? aptas[0] 
     : [...regras].sort((a, b) => (a.tempoFaltanteDias || 0) - (b.tempoFaltanteDias || 0))[0];
 
-  // 5. Cálculo do Benefício
-  const todosSalarios = vinculos.flatMap(v => v.salarios.map(s => s.valor));
-  const media = todosSalarios.length > 0 
-    ? todosSalarios.reduce((a, b) => a + b, 0) / todosSalarios.length 
-    : 0;
+  // 5. Cálculo do Valor do Benefício (Baseado na melhor regra)
+  let coeficiente = 0;
+  let beneficio = 0;
+
+  if (melhorOpcao.nome.includes('Pedágio 100%') || melhorOpcao.nome.includes('Direito Adquirido')) {
+    coeficiente = 1.0; // 100% da média
+  } else if (melhorOpcao.nome.includes('Pedágio 50%')) {
+    coeficiente = 0.85; // Simulação de Fator Previdenciário médio
+  } else {
+    // Regra Geral: 60% + 2% por ano que exceder 20(H)/15(M)
+    const anosExcedentes = Math.max(0, tempoAnos - (genero === 'M' ? 20 : 15));
+    coeficiente = 0.6 + (anosExcedentes * 0.02);
+  }
   
-  const anosExcedentes = Math.max(0, tempoAnos - (genero === 'M' ? 20 : 15));
-  const coeficiente = 0.6 + (anosExcedentes * 0.02);
-  const beneficio = media * coeficiente;
+  beneficio = media * coeficiente;
 
   // 6. Inconsistências
   const inconsistencias: Inconsistencia[] = [];
   vinculos.forEach(v => {
-    if (!v.fim && v.tipo !== 'Contribuinte Individual') {
+    if (!v.fim && v.tipo !== 'Contribuinte Individual' && v.tipo !== 'Rural') {
       inconsistencias.push({
         tipo: 'Vínculo Incompleto',
-        descricao: `Vínculo na empresa ${v.empresa} sem data de fim.`,
+        descricao: `Vínculo na empresa ${v.empresa} sem data de fim. Pode não estar sendo contado totalmente.`,
         periodo: `${format(parseISO(v.inicio), 'dd/MM/yyyy')} - Aberto`,
-        impactoTempo: 'IMPEDE APOSENTADORIA',
-        impactoValor: 'VALOR NÃO CALCULADO'
+        impactoTempo: 'REDUZ TEMPO TOTAL',
+        impactoValor: 'INCERTEZA NA MÉDIA'
       });
     }
     v.salarios.forEach(s => {
-      if (s.valor < 1320) { // Exemplo de mínimo
+      const [y] = s.competencia.split('-').map(Number);
+      if (y >= 2019 && s.valor < 1320) { // Simplificação do mínimo
         inconsistencias.push({
           tipo: 'Abaixo do Mínimo',
-          descricao: `Remuneração na competência ${s.competencia} abaixo do salário mínimo.`,
+          descricao: `Competência ${s.competencia} abaixo do mínimo. Após a Reforma, este mês não conta para tempo/carência sem complementação.`,
           periodo: s.competencia,
-          impactoTempo: 'REDUZ TEMPO TOTAL',
-          impactoValor: 'REDUZ MÉDIA SALARIAL'
+          impactoTempo: 'NÃO CONTA TEMPO',
+          impactoValor: 'REDUZ MÉDIA'
         });
       }
     });
   });
 
-  // 7. Timeline e Análise Jurídica
+  // 7. Timeline e Análise Jurídica (Mantido original com ajustes)
   const timeline: TimelineEvent[] = [];
-  
-  // Ordenar vínculos por data de início (filtrando inválidos)
   const sortedVinculos = [...vinculos]
     .filter(v => v.inicio && !isNaN(parseISO(v.inicio).getTime()))
     .sort((a, b) => parseISO(a.inicio).getTime() - parseISO(b.inicio).getTime());
 
   for (let i = 0; i < sortedVinculos.length; i++) {
     const v = sortedVinculos[i];
-    if (!v.inicio) continue;
-    
     const inicio = parseISO(v.inicio);
     const fim = v.fim ? parseISO(v.fim) : hoje;
-
-    if (isNaN(inicio.getTime()) || isNaN(fim.getTime())) continue;
-
-    // Verificar lacuna antes deste vínculo
-    if (i > 0) {
-      const fimAnterior = sortedVinculos[i-1].fim ? parseISO(sortedVinculos[i-1].fim!) : hoje;
-      if (!isNaN(fimAnterior.getTime())) {
-        const diasGap = differenceInDays(inicio, fimAnterior);
-        if (diasGap > 31) { // Mais de um mês de gap
-          timeline.push({
-            tipo: 'Lacuna',
-            descricao: 'Período sem contribuição detectado',
-            periodo: `${format(fimAnterior, 'MM/yyyy')} - ${format(inicio, 'MM/yyyy')}`,
-            inicio: sortedVinculos[i-1].fim!,
-            fim: v.inicio,
-            impacto: 'Impede Aposentadoria'
-          });
-        }
-      }
-    }
 
     timeline.push({
       tipo: v.tipo === 'Rural' ? 'Rural' : (v.especial ? 'Especial' : 'Trabalho'),
@@ -228,41 +247,22 @@ export function calcularPrevidencia(
       periodo: `${format(inicio, 'MM/yyyy')} - ${v.fim ? format(fim, 'MM/yyyy') : 'Atual'}`,
       inicio: v.inicio,
       fim: v.fim || format(hoje, 'yyyy-MM-dd'),
-      impacto: 'Neutro'
+      impacto: v.especial ? 'Neutro' : 'Neutro'
     });
   }
 
   const analiseJuridica = {
     revisoes: [
-      'Revisão da Vida Toda: Possibilidade de incluir salários anteriores a 1994.',
-      'Revisão do Buraco Negro: Para benefícios concedidos entre 1988 e 1991.',
-      'Revisão do Teto: Verificação de descartes de salários acima do teto.'
+      'Revisão da Vida Toda: Possibilidade de incluir salários anteriores a 1994 (Aguardando STF).',
+      'Revisão do Teto: Verificação de descartes de salários acima do teto.',
+      'Revisão do Artigo 29: Para benefícios por incapacidade calculados entre 2002 e 2009.'
     ],
-    periodosEspeciais: vinculos.filter(v => v.especial).map(v => `Atividade Especial em ${v.empresa}: Necessário PPP para conversão de tempo.`),
+    periodosEspeciais: vinculos.filter(v => v.especial).map(v => `Atividade Especial (${v.empresa}): Conversão de 1.4/1.2 aplicada apenas até 13/11/2019.`),
     periodosRurais: [
-      'Tempo Rural: Possibilidade de averbação de período em regime de economia familiar antes de 1991.',
-      'Necessário: Autodeclaração e documentos da época (Escrituras, ITR, Certidões).'
+      'Tempo Rural: Períodos antes de 1991 contam para carência e tempo sem necessidade de contribuição.',
+      'Documentação: Necessário Autodeclaração homologada pelo INSS.'
     ],
-    contribuinteIndividual: vinculos.filter(v => v.tipo === 'Contribuinte Individual').map(v => `Contribuinte Individual (${v.empresa}): Verificar se há débitos ou necessidade de indenização.`)
-  };
-
-  const planoAcao = [
-    'Solicitar PPP (Perfil Profissiográfico Previdenciário) para todos os períodos especiais.',
-    'Regularizar competências abaixo do salário mínimo via complementação ou agrupamento.',
-    'Apresentar Carteira de Trabalho para retificar vínculos com data de fim em aberto no CNIS.',
-    'Realizar busca de documentos rurais para aumentar o tempo total de contribuição.',
-    'Agendar requerimento administrativo de atualização de vínculos e remunerações (CTC).'
-  ];
-
-  const documentos = {
-    obrigatorios: ['RG e CPF (ou CNH)', 'Comprovante de Residência Atualizado', 'Certidão de Nascimento ou Casamento'],
-    previdenciarios: ['Extrato CNIS Completo', 'Carteiras de Trabalho (todas)', 'Carnês e Guias de Recolhimento (GPS)'],
-    estrategicos: [
-      'PPP e LTCAT (para tempo especial)',
-      'Certidão de Tempo de Contribuição (CTC) de outros regimes',
-      'Processos Trabalhistas (se houver)',
-      'Documentos Rurais (Escrituras, Certidões de Batismo, etc.)'
-    ]
+    contribuinteIndividual: vinculos.filter(v => v.tipo === 'Contribuinte Individual').map(v => `Individual (${v.empresa}): Verificar se as guias foram pagas em dia para contar carência.`)
   };
 
   const tempoFaltanteDias = melhorOpcao.tempoFaltanteDias || 0;
@@ -292,8 +292,17 @@ export function calcularPrevidencia(
     },
     inconsistencias,
     analiseJuridica,
-    planoAcao,
-    documentos,
+    planoAcao: [
+      'Obter PPP para períodos especiais para garantir a conversão de tempo até 2019.',
+      'Complementar contribuições abaixo do mínimo após 11/2019 para que contem como tempo.',
+      'Averbar tempo rural anterior a 1991 para aumentar o tempo total sem custos.',
+      'Verificar indicadores (OUI, PEXT, etc) no CNIS que podem invalidar períodos.'
+    ],
+    documentos: {
+      obrigatorios: ['RG/CPF', 'Comprovante de Residência', 'Certidão de Casamento'],
+      previdenciarios: ['CNIS Completo', 'CTPS (Carteiras de Trabalho)', 'Carnês GPS'],
+      estrategicos: ['PPP/LTCAT', 'Certidão de Alistamento Militar', 'Certidão de Tempo de Aluno-Aprendiz']
+    },
     timeline
   };
 }

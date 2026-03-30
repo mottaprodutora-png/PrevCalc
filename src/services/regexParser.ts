@@ -4,9 +4,19 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
   const result: { nome?: string, vinculos: CnisVinculo[] } = { vinculos: [] };
 
   // 1. Extrair Nome
-  const nameMatch = text.match(/Nome:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i);
-  if (nameMatch && nameMatch[1]) {
-    result.nome = nameMatch[1].trim();
+  // Tenta vários padrões comuns em extratos do INSS
+  const namePatterns = [
+    /Nome:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
+    /Nome do Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i,
+    /Segurado:\s*([A-Z\s]{5,100}?)(\s+Data de nascimento|Nome da mãe|NIT:|CPF:|$)/i
+  ];
+
+  for (const pattern of namePatterns) {
+    const match = text.match(pattern);
+    if (match && match[1] && match[1].trim().length > 5) {
+      result.nome = match[1].trim();
+      break;
+    }
   }
 
   // 2. Extrair Vínculos (Abordagem por blocos)
@@ -55,37 +65,46 @@ export function parseCnisWithRegex(text: string): { nome?: string, vinculos: Cni
     // Tenta identificar datas e tipo no bloco atual
     if (currentVinculo) {
       const dates = line.match(dateRegex);
+      
+      // Detectar se é especial
+      if (line.toLowerCase().includes('especial') || line.toLowerCase().includes('insalubre') || line.toLowerCase().includes('perigoso')) {
+        currentVinculo.especial = true;
+      }
+
       if (dates && dates.length >= 1) {
         // Se encontrarmos datas em uma linha que contém "Empregado", "Individual", etc.
-        if (line.toLowerCase().includes('empregado') || line.toLowerCase().includes('agente público')) {
+        const lowerLine = line.toLowerCase();
+        if (lowerLine.includes('empregado') || lowerLine.includes('agente público')) {
           currentVinculo.tipo = 'Empregado';
           currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) {
-            currentVinculo.fim = formatDateToIso(dates[1]);
-          }
-        } else if (line.toLowerCase().includes('contribuinte individual')) {
+          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
+        } else if (lowerLine.includes('contribuinte individual') || lowerLine.includes('autônomo')) {
           currentVinculo.tipo = 'Contribuinte Individual';
           currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) {
-            currentVinculo.fim = formatDateToIso(dates[1]);
-          }
-        } else if (line.toLowerCase().includes('facultativo')) {
+          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
+        } else if (lowerLine.includes('facultativo')) {
           currentVinculo.tipo = 'Facultativo';
           currentVinculo.inicio = formatDateToIso(dates[0]);
-          if (dates.length > 1) {
-            currentVinculo.fim = formatDateToIso(dates[1]);
-          }
+          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
+        } else if (lowerLine.includes('rural') || lowerLine.includes('segurado especial')) {
+          currentVinculo.tipo = 'Rural';
+          currentVinculo.inicio = formatDateToIso(dates[0]);
+          if (dates.length > 1) currentVinculo.fim = formatDateToIso(dates[1]);
         }
       }
       
       // Tenta capturar salários (Competência MM/AAAA e Valor)
-      // Exemplo: 01/2020 1.234,56
-      const salaryMatch = line.match(/(\d{2}\/\d{4})\s+([\d\.,]+)/);
-      if (salaryMatch) {
-        const competencia = formatCompetenciaToIso(salaryMatch[1]);
-        const valor = parseCurrency(salaryMatch[2]);
-        if (competencia && !isNaN(valor)) {
-          currentVinculo.salarios?.push({ competencia, valor });
+      // O CNIS costuma listar vários salários em colunas ou linhas seguidas
+      // Padrão comum: 01/2020 1.234,56 ou 01/2020 1234.56
+      const salaryMatches = line.matchAll(/(\d{2}\/\d{4})\s+([\d\.,]{4,15})/g);
+      for (const match of salaryMatches) {
+        const competencia = formatCompetenciaToIso(match[1]);
+        const valor = parseCurrency(match[2]);
+        if (competencia && !isNaN(valor) && valor > 0) {
+          // Evita duplicados no mesmo vínculo
+          if (!currentVinculo.salarios?.some(s => s.competencia === competencia)) {
+            currentVinculo.salarios?.push({ competencia, valor });
+          }
         }
       }
     }
