@@ -27,6 +27,7 @@ import { CnisVinculo, CalculoResultado } from './types';
 import { calcularPrevidencia } from './lib/calculator';
 import { cn } from './lib/utils';
 import { parseCnisText } from './services/gemini';
+import { parseCnisWithRegex } from './services/regexParser';
 import { extractTextFromPdf } from './lib/pdf';
 // @ts-ignore - html2pdf.js doesn't have official types
 import html2pdf from 'html2pdf.js';
@@ -164,15 +165,30 @@ export default function App() {
     if (!importText) return;
     setIsImporting(true);
     try {
+      // Tenta primeiro com Regex (Local, Grátis, Sem Chave)
+      const regexResult = parseCnisWithRegex(importText);
+      
+      if (regexResult.vinculos.length > 0) {
+        setVinculos([...vinculos, ...regexResult.vinculos]);
+        if (regexResult.nome && !nome) {
+          setNome(regexResult.nome);
+        }
+        setActiveTab('manual');
+        setImportText('');
+        setIsImporting(false);
+        return;
+      }
+
+      // Se o regex não encontrar nada, tenta com IA (Se a chave estiver configurada)
       const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(importText);
       
       if (error === 'API_KEY_MISSING') {
-        alert("A chave da API do Gemini não foi configurada ou é inválida. Por favor, adicione GEMINI_API_KEY às variáveis de ambiente no Vercel e faça um novo deploy.");
+        alert("Não foi possível extrair dados localmente. Para usar a extração via IA, você precisa configurar a GEMINI_API_KEY no Vercel.");
         return;
       }
 
       if (error) {
-        alert(`Erro na API do Gemini: ${error}. Verifique se sua chave de API está ativa e se você não atingiu o limite de uso.`);
+        alert(`Erro na extração via IA: ${error}. Tente copiar e colar o texto novamente.`);
         return;
       }
 
@@ -184,7 +200,7 @@ export default function App() {
         setActiveTab('manual');
         setImportText('');
       } else {
-        alert("Não foi possível extrair dados do texto fornecido. Verifique se o conteúdo é um extrato CNIS válido.");
+        alert("Não foi possível extrair dados do texto fornecido. Verifique se o conteúdo é um extrato CNIS válido ou tente copiar o texto de forma mais clara.");
       }
     } catch (error) {
       console.error("Erro na importação:", error);
@@ -688,7 +704,7 @@ export default function App() {
                       className="w-full bg-brand-primary text-white py-3.5 rounded-xl text-xs font-bold hover:bg-brand-primary/90 transition-all disabled:opacity-50 shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
                     >
                       {isImporting ? <Clock className="animate-spin" size={16} /> : <Calculator size={16} />}
-                      Processar Texto com IA
+                      Processar Dados (Local + IA)
                     </button>
                     
                     <div className="relative flex items-center">
