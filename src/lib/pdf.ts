@@ -24,9 +24,17 @@ export async function extractTextFromPdf(file: File): Promise<string> {
       return b.transform[5] - a.transform[5];
     });
 
-    const pageText = items
-      .map((item: any) => item.str)
-      .join(' ');
+    let pageText = '';
+    let lastY = -1;
+    for (const item of items) {
+      if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 5) {
+        pageText += '\n';
+      } else if (lastY !== -1) {
+        pageText += ' ';
+      }
+      pageText += item.str;
+      lastY = item.transform[5];
+    }
     fullText += pageText + '\n';
   }
 

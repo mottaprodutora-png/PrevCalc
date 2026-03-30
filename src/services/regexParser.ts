@@ -2,9 +2,8 @@ import { parseISO, isBefore, isAfter, differenceInDays } from "date-fns";
 import { CnisVinculo } from "../types";
 
 export function parseCnisWithRegex(text: string): { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } {
-  // 0. Pré-processamento: Limpar ruídos comuns de PDF
+  // 0. Pré-processamento: Limpar ruídos comuns de PDF sem destruir colunas
   const cleanText = text
-    .replace(/\s{2,}/g, ' ') // Remove espaços múltiplos
     .replace(/(\d)\s*\/\s*(\d)/g, '$1/$2') // Corrige datas com espaços (01 / 01 / 2000)
     .replace(/(\d)\s*,\s*(\d)/g, '$1,$2') // Corrige valores com espaços (1.000 , 00)
     .replace(/(\d)\s*\.\s*(\d)/g, '$1.$2'); // Corrige valores com espaços (1 . 000,00)
@@ -84,17 +83,16 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
       continue;
     }
     
-    // Tenta identificar o início de um vínculo - Padrões muito mais abertos
+    // Tenta identificar o início de um vínculo - Padrões mais simples e robustos
     const cnpjMatch = line.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{2}\.\d{3}\.\d{5}\/\d{2})/);
     const nitMatch = line.match(/(?:NIT|PIS|PASEP):\s*(\d{3}\.\d{5}\.\d{2}-\d{1})/) || line.match(/^(\d+)\s+(\d{3}\.\d{5}\.\d{2}-\d{1})/); 
     const seqMatch = line.match(/^(\d+)\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
     const seqDateMatch = line.match(/^(\d+)\s+(\d{2}\/\d{2}\/\d{4})/);
     const labelMatch = line.match(/^(?:Vínculo|Seq|Link|Item|Nº):\s*(\d+)/i);
     const employerMatch = line.match(/(?:Empregador|Empresa|Orgão):\s*([A-Z0-9\s\.\-\/]{5,100})/i);
-    // Padrão genérico: Número seguido de texto em maiúsculo (comum em listas de vínculos)
-    const genericStartMatch = line.match(/^(\d+)\s+([A-Z][A-Z\s\.\-\/]{5,50})/);
     
-    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento) || genericStartMatch;
+    // Se encontrar qualquer um desses, é um novo vínculo
+    const isNewLink = cnpjMatch || nitMatch || seqMatch || labelMatch || employerMatch || (seqDateMatch && formatDateToIso(seqDateMatch[2]) !== dataNascimento);
 
     if (isNewLink) {
       // Se já tínhamos um vínculo sendo processado, salvamos
@@ -110,21 +108,19 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
         // Tenta pegar o nome que costuma vir antes ou depois do CNPJ na mesma linha
         const namePart = line.replace(cnpjMatch[0], '').replace(/^\d+\s+/, '').trim();
         if (namePart.length > 3) empresa = namePart;
-      } else if (genericStartMatch) {
-        empresa = genericStartMatch[2].trim();
       }
 
       currentVinculo = {
         id,
         empresa,
         inicio: '',
-        tipo: (cnpjMatch || seqMatch || labelMatch || employerMatch || genericStartMatch) ? 'Empregado' : 'Contribuinte Individual',
+        tipo: (cnpjMatch || seqMatch || labelMatch || employerMatch) ? 'Empregado' : 'Contribuinte Individual',
         especial: false,
         salarios: []
       };
 
-      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch || genericStartMatch) {
-        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch || genericStartMatch;
+      if (cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch) {
+        const match = cnpjMatch || seqMatch || labelMatch || seqDateMatch || employerMatch;
         // Tenta pegar o nome da empresa na mesma linha
         let lineWithoutCnpj = line.replace(match![0], '').replace(/^(?:Vínculo|Seq|Link|Item|Empregador):\s*\d*/i, '').replace(/^\d+\s+/, '').trim();
         
