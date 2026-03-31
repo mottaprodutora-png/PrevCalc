@@ -6,9 +6,10 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   // 1. Extração do Nome do Titular (antes de filtrar cabeçalhos)
   // O nome do titular está na mesma linha que NIT e CPF, após Nome:.
   // O nome da mãe está na linha seguinte, após Nome da mãe:.
-  const nameMatch = text.match(/Nome:\s+([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]+?)(?=Data de nascimento|Nome da mãe|$)/i);
+  // Procuramos especificamente por Nome: precedido por NIT ou CPF na mesma linha (ou proximidade)
+  const nameMatch = text.match(/(?:NIT|CPF):.*?Nome:\s*([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]+?)(?=\s+Nome da mãe|\s+Data de nascimento|\s+CPF:|$)/i);
   if (nameMatch) {
-    result.nome = nameMatch[1].trim();
+    result.nome = nameMatch[1].trim().split('\n')[0].trim();
   }
 
   // Extração da Data de Nascimento
@@ -29,7 +30,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
         l.includes("Identificação do Filiado") || 
         l.includes("Relações Previdenciárias") || 
         l.includes("O INSS poderá rever") || 
-        l.includes("NIT:") || // Remove a linha do titular/CPF que se repete
+        (l.includes("NIT:") && l.includes("CPF:") && l.includes("Nome:")) || // Remove a linha do titular/CPF que se repete
         /Página \d+ de \d+/.test(l);
       return !isHeader;
     });
@@ -41,9 +42,10 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     const line = lines[i];
 
     // 3. Detecção de Novo Vínculo (Seq. NIT/CNPJ Nome...)
-    // Padrão: número inteiro + NIT/CNPJ + Nome
+    // Padrão: número inteiro (1-3 dígitos) + NIT (11-14 dígitos formatados) + CNPJ/Nome
     // Ex: 1    160.09612.11-0  94.420.080/0001-88   INDUSTRIA DE EQUIP...
-    const linkHeaderMatch = line.match(/^(\d+)[\.\s]+(\d{2,3}[\.\d\/\-]{8,})\s+(.+)/);
+    // Evitamos casar o NIT do titular como Seq. limitando o primeiro grupo a 3 dígitos e exigindo um NIT logo após
+    const linkHeaderMatch = line.match(/^(\d{1,3})\s+(\d{3}[\.\s]?\d{5}[\.\s]?\d{2}[-\s]?\d)\s+(.+)/);
     const benefitMatch = line.match(/^Seq\.(\d+)(?::|-)\s*Benefício\s*(\d+)/i);
     const meiMatch = line.match(/^Seq\.(\d+)(?::|-)\s*(RECOLHIMENTO|AGRUPAMENTO|MEI)/i);
 
@@ -53,7 +55,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
       const seq = parseInt(match[1]);
       
       // Se encontrarmos uma nova sequência maior, fechamos o anterior e abrimos o novo
-      if (seq > currentSeq) {
+      if (seq > currentSeq || (seq === 1 && currentSeq === 0)) {
         if (currentVinculo) {
           result.vinculos.push(currentVinculo as CnisVinculo);
         }
@@ -89,12 +91,19 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
             fim = formatDateToIso(datesMatch[2]);
           }
         } else {
-          cnpj = linkHeaderMatch![2];
           const restOfLine = linkHeaderMatch![3];
+          
+          // O CNPJ geralmente vem logo após o NIT
+          const cnpjMatch = restOfLine.match(/^(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s+(.+)/);
+          let companyPart = restOfLine;
+          if (cnpjMatch) {
+            cnpj = cnpjMatch[1];
+            companyPart = cnpjMatch[2];
+          }
           
           // Extração da empresa e datas no restante da linha
           // Procure por datas no formato DD/MM/AAAA
-          const datesInLine = restOfLine.match(/(\d{2}\/\d{2}\/\d{4})/g);
+          const datesInLine = companyPart.match(/(\d{2}\/\d{2}\/\d{4})/g);
           if (datesInLine && datesInLine.length >= 1) {
             inicio = formatDateToIso(datesInLine[0]);
             if (datesInLine.length >= 2) {
@@ -102,11 +111,11 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
             }
             
             // A empresa está antes da primeira data
-            const firstDateIndex = restOfLine.indexOf(datesInLine[0]);
-            empresa = restOfLine.substring(0, firstDateIndex).trim();
+            const firstDateIndex = companyPart.indexOf(datesInLine[0]);
+            empresa = companyPart.substring(0, firstDateIndex).trim();
           } else {
             // Se não houver datas, o resto é a empresa
-            empresa = restOfLine.trim();
+            empresa = companyPart.trim();
           }
         }
 
