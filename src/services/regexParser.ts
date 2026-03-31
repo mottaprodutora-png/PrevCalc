@@ -28,8 +28,8 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     //  1    160.09612.11-0  94.420.080/0001-88   INDUSTRIA DE EQUIP...     15/10/2003   31/12/2003   12/2003
     const linkHeaderMatch = line.match(/^(\d+)\s+\d{3}\.\d{5}\.\d{2}-\d\s+([\d\.\-\/]+)/);
     
-    // Also handle "Seq.12: Benefício 31" style
-    const benefitMatch = line.match(/^Seq\.(\d+):\s*Benefício\s*(\d+)/i);
+    // Also handle "Seq.12: Benefício 31" or "Seq.12 - Benefício 31" style
+    const benefitMatch = line.match(/^Seq\.(\d+)(?::|-)\s*Benefício\s*(\d+)/i);
 
     if (linkHeaderMatch || benefitMatch) {
       const seq = parseInt(linkHeaderMatch ? linkHeaderMatch[1] : benefitMatch![1]);
@@ -93,7 +93,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     }
 
     // Special case for MEI/Recolhimento (Seq. 19/20)
-    const meiMatch = line.match(/^Seq\.(\d+):\s*(RECOLHIMENTO|AGRUPAMENTO)/i);
+    const meiMatch = line.match(/^Seq\.(\d+)(?::|-)\s*(RECOLHIMENTO|AGRUPAMENTO|MEI)/i);
     if (meiMatch) {
       const seq = parseInt(meiMatch[1]);
       if (seq > currentSeq) {

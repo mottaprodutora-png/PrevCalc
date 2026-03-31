@@ -53,6 +53,8 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [savedCalculations, setSavedCalculations] = useState<any[]>([]);
+  const [reviewData, setReviewData] = useState<{ nome?: string, nascimento?: string, vinculos: CnisVinculo[] } | null>(null);
+  const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -177,15 +179,12 @@ export default function App() {
         // Filtra vínculos vazios ou inválidos
         const validVinculos = regexResult.vinculos.filter(v => v.inicio || v.salarios?.length > 0);
         if (validVinculos.length > 0) {
-          setVinculos([...vinculos, ...validVinculos]);
-          if (regexResult.nome && !nome) {
-            setNome(regexResult.nome);
-          }
-          if (regexResult.dataNascimento && !nascimento) {
-            setNascimento(regexResult.dataNascimento);
-          }
-          setActiveTab('manual');
-          setImportText('');
+          setReviewData({
+            nome: regexResult.nome,
+            nascimento: regexResult.dataNascimento,
+            vinculos: validVinculos
+          });
+          setShowReview(true);
           setIsImporting(false);
           return;
         }
@@ -195,13 +194,13 @@ export default function App() {
       console.log("Parser local não encontrou dados suficientes. Tentando IA...");
       const { nome: importedNome, dataNascimento: importedDataNascimento, vinculos: importedVinculos, error } = await parseCnisText(text);
       
-    if (error === 'API_KEY_MISSING') {
-      console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
-      if (regexResult.vinculos.length === 0) {
-        alert("Não foi possível extrair os dados automaticamente deste PDF. \n\nIsso pode acontecer se o arquivo estiver protegido ou em um formato não suportado. \n\nSugestão: Tente copiar o texto do PDF e colar na aba 'Importar Texto' ou preencha os dados manualmente.");
+      if (error === 'API_KEY_MISSING') {
+        console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
+        if (regexResult.vinculos.length === 0) {
+          alert("Não foi possível extrair os dados automaticamente deste PDF. \n\nIsso pode acontecer se o arquivo estiver protegido ou em um formato não suportado. \n\nSugestão: Tente copiar o texto do PDF e colar na aba 'Importar Texto' ou preencha os dados manualmente.");
+        }
+        return;
       }
-      return;
-    }
 
       if (error) {
         alert(`Erro na extração via IA: ${error}. Tente copiar e colar o texto novamente.`);
@@ -209,15 +208,12 @@ export default function App() {
       }
 
       if (importedVinculos.length > 0) {
-        setVinculos([...vinculos, ...importedVinculos]);
-        if (importedNome && !nome) {
-          setNome(importedNome);
-        }
-        if (importedDataNascimento && !nascimento) {
-          setNascimento(importedDataNascimento);
-        }
-        setActiveTab('manual');
-        setImportText('');
+        setReviewData({
+          nome: importedNome,
+          nascimento: importedDataNascimento,
+          vinculos: importedVinculos
+        });
+        setShowReview(true);
       } else {
         alert("Não foi possível extrair dados do texto fornecido. Verifique se o conteúdo é um extrato CNIS válido ou tente copiar o texto de forma mais clara.");
       }
@@ -280,27 +276,142 @@ export default function App() {
         // This helps html2canvas ignore oklch if it's in the stylesheet but not used on the element
         ignoreElements: (element: Element) => element.classList.contains('no-pdf'),
         onclone: (clonedDoc: Document) => {
-          // Remove all style tags that might contain oklch/oklab
-          const styles = clonedDoc.getElementsByTagName('style');
-          for (let i = 0; i < styles.length; i++) {
-            const style = styles[i];
-            if (style.textContent && (style.textContent.includes('oklch') || style.textContent.includes('oklab'))) {
-              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, '#000000');
-              style.textContent = style.textContent.replace(/oklab\([^)]+\)/g, '#000000');
-            }
-          }
-          
-          // Also check inline styles of all elements
-          const allElements = clonedDoc.getElementsByTagName('*');
-          for (let i = 0; i < allElements.length; i++) {
-            const el = allElements[i] as HTMLElement;
-            if (el.style) {
-              const styleStr = el.getAttribute('style');
-              if (styleStr && (styleStr.includes('oklch') || styleStr.includes('oklab'))) {
-                el.setAttribute('style', styleStr.replace(/oklch\([^)]+\)/g, '#000000').replace(/oklab\([^)]+\)/g, '#000000'));
-              }
-            }
-          }
+          // Remove all existing style and link tags to prevent html2canvas from parsing oklch/oklab
+          // We will inject a safe, hex-only stylesheet instead
+          const styleElements = Array.from(clonedDoc.querySelectorAll('style, link[rel="stylesheet"]'));
+          styleElements.forEach(el => el.remove());
+
+          // Inject a completely safe, hex-only stylesheet for the PDF
+          const safeStyle = clonedDoc.createElement('style');
+          safeStyle.textContent = `
+            /* Basic Reset */
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: sans-serif; background: white; color: #0f172a; }
+            
+            /* Layout Utilities */
+            .flex { display: flex; }
+            .grid { display: grid; }
+            .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+            .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            .gap-2 { gap: 0.5rem; }
+            .gap-3 { gap: 0.75rem; }
+            .gap-4 { gap: 1rem; }
+            .gap-6 { gap: 1.5rem; }
+            .gap-8 { gap: 2rem; }
+            .p-2 { padding: 0.5rem; }
+            .p-3 { padding: 0.75rem; }
+            .p-4 { padding: 1rem; }
+            .p-5 { padding: 1.25rem; }
+            .p-6 { padding: 1.5rem; }
+            .p-10 { padding: 2.5rem; }
+            .p-12 { padding: 3rem; }
+            .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+            .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+            .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+            .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+            .mb-1 { margin-bottom: 0.25rem; }
+            .mb-2 { margin-bottom: 0.5rem; }
+            .mb-3 { margin-bottom: 0.75rem; }
+            .mb-4 { margin-bottom: 1rem; }
+            .mb-6 { margin-bottom: 1.5rem; }
+            .mb-8 { margin-bottom: 2rem; }
+            .mt-1 { margin-top: 0.25rem; }
+            .mt-2 { margin-top: 0.5rem; }
+            .mt-4 { margin-top: 1rem; }
+            .mt-6 { margin-top: 1.5rem; }
+            .mt-8 { margin-top: 2rem; }
+            .mt-10 { margin-top: 2.5rem; }
+            .w-full { width: 100%; }
+            .max-w-4xl { max-width: 56rem; }
+            .mx-auto { margin-left: auto; margin-right: auto; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .justify-between { justify-content: space-between; }
+            .justify-center { justify-content: center; }
+            .items-center { align-items: center; }
+            .items-start { align-items: flex-start; }
+            
+            /* Typography */
+            .text-xs { font-size: 0.75rem; }
+            .text-sm { font-size: 0.875rem; }
+            .text-base { font-size: 1rem; }
+            .text-lg { font-size: 1.125rem; }
+            .text-xl { font-size: 1.25rem; }
+            .text-2xl { font-size: 1.5rem; }
+            .text-3xl { font-size: 1.875rem; }
+            .text-5xl { font-size: 3rem; }
+            .font-bold { font-weight: 700; }
+            .font-medium { font-weight: 500; }
+            .font-semibold { font-weight: 600; }
+            .uppercase { text-transform: uppercase; }
+            .tracking-tight { letter-spacing: -0.025em; }
+            .tracking-widest { letter-spacing: 0.1em; }
+            .leading-relaxed { line-height: 1.625; }
+            .italic { font-style: italic; }
+            
+            /* Colors (Hex Only) */
+            .text-brand-text { color: #0f172a; }
+            .text-brand-primary { color: #2563eb; }
+            .text-brand-muted { color: #64748b; }
+            .text-white { color: #ffffff; }
+            .text-green-600 { color: #16a34a; }
+            .text-green-700 { color: #15803d; }
+            .text-amber-700 { color: #b45309; }
+            .text-red-600 { color: #dc2626; }
+            .text-slate-500 { color: #64748b; }
+            .text-slate-600 { color: #475569; }
+            .text-slate-700 { color: #334155; }
+            .text-slate-900 { color: #0f172a; }
+            
+            .bg-white { background-color: #ffffff; }
+            .bg-brand-primary { background-color: #2563eb; }
+            .bg-brand-text { background-color: #0f172a; }
+            .bg-brand-bg { background-color: #f8fafc; }
+            .bg-green-50 { background-color: #f0fdf4; }
+            .bg-green-100 { background-color: #dcfce7; }
+            .bg-amber-50 { background-color: #fffbeb; }
+            .bg-red-50 { background-color: #fef2f2; }
+            .bg-red-600 { background-color: #dc2626; }
+            .bg-slate-50 { background-color: #f8fafc; }
+            .bg-slate-100 { background-color: #f1f5f9; }
+            
+            .border { border: 1px solid #e2e8f0; }
+            .border-2 { border-width: 2px; }
+            .border-brand-border { border-color: #e2e8f0; }
+            .border-brand-primary { border-color: #2563eb; }
+            .border-green-200 { border-color: #bbf7d0; }
+            .border-amber-200 { border-color: #fde68a; }
+            .border-red-200 { border-color: #fecaca; }
+            .border-slate-200 { border-color: #e2e8f0; }
+            .border-b { border-bottom: 1px solid #e2e8f0; }
+            .border-b-2 { border-bottom: 2px solid #2563eb; }
+            .border-l-4 { border-left: 4px solid #e2e8f0; }
+            .border-l-brand-primary { border-left-color: #2563eb; }
+            
+            .rounded-lg { border-radius: 0.5rem; }
+            .rounded-xl { border-radius: 0.75rem; }
+            .rounded-2xl { border-radius: 1rem; }
+            .rounded-3xl { border-radius: 1.5rem; }
+            .rounded-full { border-radius: 9999px; }
+            
+            .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+            .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+            
+            /* Specific Report Overrides */
+            #printable-report { padding: 3rem; background: white; width: 100%; }
+            .overflow-hidden { overflow: hidden; }
+            .shrink-0 { flex-shrink: 0; }
+            .list-disc { list-style-type: disc; }
+            .pl-5 { padding-left: 1.25rem; }
+            .space-y-1 > * + * { margin-top: 0.25rem; }
+            .space-y-2 > * + * { margin-top: 0.5rem; }
+            .space-y-3 > * + * { margin-top: 0.75rem; }
+            .space-y-4 > * + * { margin-top: 1rem; }
+            .space-y-6 > * + * { margin-top: 1.5rem; }
+          `;
+          clonedDoc.head.appendChild(safeStyle);
         }
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
@@ -316,8 +427,138 @@ export default function App() {
     }
   };
 
+  const confirmImport = () => {
+    if (!reviewData) return;
+    
+    setVinculos([...vinculos, ...reviewData.vinculos]);
+    if (reviewData.nome) setNome(reviewData.nome);
+    if (reviewData.nascimento) setNascimento(reviewData.nascimento);
+    
+    setShowReview(false);
+    setReviewData(null);
+    setActiveTab('manual');
+    setImportText('');
+  };
+
   return (
     <div className="min-h-screen bg-brand-bg text-brand-text font-sans selection:bg-brand-primary selection:text-white">
+      {/* Review Modal */}
+      <AnimatePresence>
+        {showReview && reviewData && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-200"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <ShieldCheck className="w-6 h-6 text-brand-primary" />
+                    Validação Pós-Parse
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-1">Confirme os dados extraídos antes de calcular</p>
+                </div>
+                <button 
+                  onClick={() => setShowReview(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+                <div className="bg-brand-primary/5 rounded-2xl p-4 border border-brand-primary/10">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
+                      <User className="w-5 h-5 text-brand-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-widest text-brand-primary/60">Titular</p>
+                      <p className="text-lg font-bold text-slate-900">{reviewData.nome || 'Não identificado'}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-6 mt-3 pl-13">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nascimento</p>
+                      <p className="text-sm font-medium text-slate-700">{reviewData.nascimento ? safeFormat(reviewData.nascimento, 'dd/MM/yyyy') : '---'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Vínculos</p>
+                      <p className="text-sm font-medium text-slate-700">{reviewData.vinculos.length} encontrados</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1">Resumo dos Vínculos</h3>
+                  <div className="space-y-2">
+                    {reviewData.vinculos.map((v, idx) => (
+                      <div key={v.id} className="group p-3 rounded-xl border border-slate-100 bg-slate-50/30 hover:border-brand-primary/30 hover:bg-white transition-all">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span className="text-[10px] font-bold bg-slate-200 text-slate-600 w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5">
+                              {String(v.seq || idx + 1).padStart(2, '0')}
+                            </span>
+                            <div>
+                              <p className="text-sm font-bold text-slate-800 line-clamp-1">{v.empresa}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <p className="text-xs text-slate-500 font-medium">
+                                  {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '---'} → {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'}
+                                </p>
+                                <span className="w-1 h-1 rounded-full bg-slate-300" />
+                                <p className="text-xs text-slate-500 font-medium">
+                                  {v.salarios.length} comp.
+                                </p>
+                                {v.situacao && (
+                                  <>
+                                    <span className="w-1 h-1 rounded-full bg-slate-300" />
+                                    <span className="text-[10px] font-bold text-amber-600 uppercase">{v.situacao}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {v.indicadores && v.indicadores.length > 0 && (
+                            <div className="flex flex-wrap gap-1 justify-end max-w-[120px]">
+                              {v.indicadores.slice(0, 2).map(ind => (
+                                <span key={ind} className="text-[9px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  {ind}
+                                </span>
+                              ))}
+                              {v.indicadores.length > 2 && (
+                                <span className="text-[9px] font-bold text-slate-400">+{v.indicadores.length - 2}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-3">
+                <button
+                  onClick={() => setShowReview(false)}
+                  className="flex-1 px-6 py-3 rounded-2xl font-bold text-slate-600 hover:bg-slate-200 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmImport}
+                  className="flex-[2] px-6 py-3 rounded-2xl font-bold bg-brand-primary text-white shadow-lg shadow-brand-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  Confirmar e Importar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b border-brand-border px-6 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-3">
