@@ -203,7 +203,18 @@ export default function App() {
       }
 
       if (error) {
-        alert(`Erro na extração via IA: ${error}. Tente copiar e colar o texto novamente.`);
+        let friendlyError = error;
+        try {
+          const parsedError = JSON.parse(error);
+          if (parsedError.error?.code === 503) {
+            friendlyError = "O serviço de Inteligência Artificial está temporariamente sobrecarregado (Erro 503). \n\nIsso acontece em horários de pico. Por favor, aguarde alguns segundos e tente novamente, ou use a importação manual.";
+          } else if (parsedError.error?.message) {
+            friendlyError = parsedError.error.message;
+          }
+        } catch (e) {
+          // Not a JSON error, use raw string
+        }
+        alert(`Erro na extração via IA: ${friendlyError}`);
         return;
       }
 

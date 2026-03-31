@@ -27,7 +27,8 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
     // 2. Link Detection
     // Seq.  NIT Vín         Código Emp.          Origem do Vínculo         Data Início  Data Fim  Últ. Remun.
     //  1    160.09612.11-0  94.420.080/0001-88   INDUSTRIA DE EQUIP...     15/10/2003   31/12/2003   12/2003
-    const linkHeaderMatch = line.match(/^(\d+)\s+\d{3}\.\d{5}\.\d{2}-\d\s+([\d\.\-\/]+)/);
+    // NIT format can vary, so let's be more flexible: \d{3}[\.\s]?\d{5}[\.\s]?\d{2}[-\s]?\d
+    const linkHeaderMatch = line.match(/^(\d+)[\.\s]+\d{3}[\.\s]?\d{5}[\.\s]?\d{2}[-\s]?\d\s+([\d\.\-\/]+)/);
     
     // Also handle "Seq.12: Benefício 31" or "Seq.12 - Benefício 31" style
     const benefitMatch = line.match(/^Seq\.(\d+)(?::|-)\s*Benefício\s*(\d+)/i);
