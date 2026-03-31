@@ -1143,7 +1143,7 @@ export default function App() {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] uppercase font-bold text-white/60 tracking-wider">Coeficiente Aplicado</p>
-                      <p className="text-3xl font-bold">{resultado.valorEstimado.coeficiente.toFixed(1)}%</p>
+                      <p className="text-3xl font-bold">{(resultado.valorEstimado.coeficiente * 100).toFixed(0)}%</p>
                     </div>
                     {resultado.melhorOpcao.tempoFaltanteDias && resultado.melhorOpcao.tempoFaltanteDias > 0 && (
                       <div className="space-y-1">
@@ -1479,7 +1479,7 @@ export default function App() {
                             </div>
                             <div>
                               <p className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-2">Coeficiente</p>
-                              <p className="text-3xl font-bold">{resultado.valorEstimado.coeficiente.toFixed(1)}%</p>
+                              <p className="text-3xl font-bold">{(resultado.valorEstimado.coeficiente * 100).toFixed(0)}%</p>
                             </div>
                           </div>
                           <div className="pt-8 border-t border-white/10">

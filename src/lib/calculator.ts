@@ -52,9 +52,9 @@ export function calcularPrevidencia(
         const comp = format(current, 'yyyy-MM');
         
         // PDT-NASC-FIL-INV -> Idade do filiado menor que permitida — desconsiderar essas competências
-        const hasInvalidIndicator = v.salarios?.some(s => 
+        const hasInvalidIndicator = (v.salarios?.some(s => 
           s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
-        );
+        )) || v.indicadores?.includes('PDT-NASC-FIL-INV');
 
         if (!hasInvalidIndicator) {
           diasContribuidos.add(format(current, 'yyyy-MM-dd'));
@@ -268,9 +268,9 @@ function calculateDaysUntil(vinculos: CnisVinculo[], limitDate: Date): number {
     if (shouldCount) {
       while (isBefore(current, actualEnd) || current.getTime() === actualEnd.getTime()) {
         const comp = format(current, 'yyyy-MM');
-        const hasInvalidIndicator = v.salarios?.some(s => 
+        const hasInvalidIndicator = (v.salarios?.some(s => 
           s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
-        );
+        )) || v.indicadores?.includes('PDT-NASC-FIL-INV');
 
         if (!hasInvalidIndicator) {
           days.add(format(current, 'yyyy-MM-dd'));

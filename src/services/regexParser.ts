@@ -13,7 +13,8 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
 
     // 1. Header Parsing
     // NIT: 167.35735.45-6  CPF: 020.485.330-35  Nome: ALENCAR MATTOS DE OLIVEIRA
-    if (line.includes('Nome:') && !result.nome) {
+    // Ensure we only pick "Nome:" when NIT and CPF are present to avoid picking "Nome da mãe:"
+    if (line.includes('Nome:') && line.includes('NIT:') && !result.nome) {
       const nameMatch = line.match(/Nome:\s*([A-Z\s]+?)(?:\s+Nome da mãe:|$)/i);
       if (nameMatch) result.nome = nameMatch[1].trim();
     }
@@ -64,12 +65,28 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
           if (line.includes('CESSADO')) situacao = 'CESSADO';
         } else {
           cnpj = linkHeaderMatch![2];
-          const parts = line.split(/\s{2,}/);
-          if (parts.length >= 5) {
-            empresa = parts[3];
-            inicio = formatDateToIso(parts[4]);
-            if (parts[5] && parts[5].match(/\d{2}\/\d{2}\/\d{4}/)) {
-              fim = formatDateToIso(parts[5]);
+          
+          // More robust company name extraction: it's between CNPJ and the first date
+          const companyAndDatesMatch = line.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\s+(.+?)\s+(\d{2}\/\d{2}\/\d{4})/);
+          if (companyAndDatesMatch) {
+            empresa = companyAndDatesMatch[1].trim();
+            inicio = formatDateToIso(companyAndDatesMatch[2]);
+            
+            // Try to find the end date which follows the start date
+            const remainingLine = line.substring(line.indexOf(companyAndDatesMatch[2]) + 10);
+            const endDateMatch = remainingLine.match(/(\d{2}\/\d{2}\/\d{4})/);
+            if (endDateMatch) {
+              fim = formatDateToIso(endDateMatch[1]);
+            }
+          } else {
+            // Fallback to split if regex fails
+            const parts = line.split(/\s{2,}/);
+            if (parts.length >= 5) {
+              empresa = parts[3];
+              inicio = formatDateToIso(parts[4]);
+              if (parts[5] && parts[5].match(/\d{2}\/\d{2}\/\d{4}/)) {
+                fim = formatDateToIso(parts[5]);
+              }
             }
           }
         }
@@ -128,6 +145,15 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
       if (line.includes('— Remunerações —')) {
         inRemunerations = true;
         continue;
+      }
+
+      // Reset inRemunerations if we hit a new section that is NOT remunerations
+      if (inRemunerations && (line.includes('Seq.') || line.includes('NIT:') || line.includes('Página:'))) {
+        // But only if it's not a line we can parse as a remuneration
+        const isRemunLine = line.match(/\d{2}\/\d{4}/);
+        if (!isRemunLine) {
+          inRemunerations = false;
+        }
       }
 
       if (inRemunerations) {
