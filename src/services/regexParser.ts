@@ -1,138 +1,187 @@
-import { parseISO, isBefore, isAfter, differenceInDays } from "date-fns";
-import { CnisVinculo } from "../types";
+import { CnisVinculo, CnisSalario } from "../types";
 
 export function parseCnisWithRegex(text: string): { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } {
   const result: { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } = { vinculos: [] };
-  
-  // Clean text but preserve structure
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
   let currentVinculo: Partial<CnisVinculo> | null = null;
-  const hoje = new Date();
+  let inRemunerations = false;
+  let currentSeq = 0;
 
-  // 1. Extract Name and Birth Date
-  for (const line of lines) {
-    if (!result.nome) {
-      const nameMatch = line.match(/(?:Nome|Segurado|Nome do Segurado):\s*([A-Z\s]{5,100})/i);
-      if (nameMatch) result.nome = nameMatch[1].trim();
-    }
-    if (!result.dataNascimento) {
-      const birthMatch = line.match(/(?:Nascimento|Nasc|Data de nascimento):\s*(\d{2}\/\d{2}\/\d{4})/i);
-      if (birthMatch) result.dataNascimento = formatDateToIso(birthMatch[1]);
-    }
-  }
-
-  // 2. Process Links and Salaries
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
-    // Detect new link start
-    // Pattern 1: Number followed by CNPJ/CPF
-    const linkStartMatch = line.match(/^(\d+)\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2})/);
-    // Pattern 2: Explicit CNPJ/CPF label
-    const cnpjLabelMatch = line.match(/(?:CNPJ|CEI|CPF|NIT):\s*([\d\.\-\/]+)/i);
-    
-    if (linkStartMatch || cnpjLabelMatch) {
-      if (currentVinculo && (currentVinculo.empresa || currentVinculo.inicio)) {
-        result.vinculos.push(currentVinculo as CnisVinculo);
-      }
-      
-      currentVinculo = {
-        id: Math.random().toString(36).substr(2, 9),
-        empresa: '',
-        inicio: '',
-        tipo: 'Empregado',
-        especial: false,
-        salarios: []
-      };
 
-      // Try to find company name (Razão Social)
-      let companyName = '';
-      if (linkStartMatch) {
-        // The name is often after the CNPJ in the same line
-        companyName = line.replace(linkStartMatch[0], '').trim();
-      }
+    // 1. Header Parsing
+    // NIT: 167.35735.45-6  CPF: 020.485.330-35  Nome: ALENCAR MATTOS DE OLIVEIRA
+    if (line.includes('Nome:') && !result.nome) {
+      const nameMatch = line.match(/Nome:\s*([A-Z\s]+?)(?:\s+Nome da mãe:|$)/i);
+      if (nameMatch) result.nome = nameMatch[1].trim();
+    }
+    // Data de nascimento: 27/08/1989
+    if (line.includes('Data de nascimento:') && !result.dataNascimento) {
+      const birthMatch = line.match(/Data de nascimento:\s*(\d{2}\/\d{2}\/\d{4})/i);
+      if (birthMatch) result.dataNascimento = formatDateToIso(birthMatch[1]);
+    }
+
+    // 2. Link Detection
+    // Seq.  NIT Vín         Código Emp.          Origem do Vínculo         Data Início  Data Fim  Últ. Remun.
+    //  1    160.09612.11-0  94.420.080/0001-88   INDUSTRIA DE EQUIP...     15/10/2003   31/12/2003   12/2003
+    const linkHeaderMatch = line.match(/^(\d+)\s+\d{3}\.\d{5}\.\d{2}-\d\s+([\d\.\-\/]+)/);
+    
+    // Also handle "Seq.12: Benefício 31" style
+    const benefitMatch = line.match(/^Seq\.(\d+):\s*Benefício\s*(\d+)/i);
+
+    if (linkHeaderMatch || benefitMatch) {
+      const seq = parseInt(linkHeaderMatch ? linkHeaderMatch[1] : benefitMatch![1]);
       
-      if (!companyName || companyName.length < 3) {
-        // Look ahead for "Nome do Empregador" or "Razão Social"
-        for (let j = 1; j <= 5; j++) {
-          const nextLine = lines[i + j];
-          if (!nextLine) break;
+      if (seq > currentSeq) {
+        if (currentVinculo) {
+          result.vinculos.push(currentVinculo as CnisVinculo);
+        }
+        currentSeq = seq;
+        inRemunerations = false;
+
+        let tipo: CnisVinculo['tipo'] = 'Empregado';
+        let empresa = '';
+        let inicio = '';
+        let fim: string | undefined;
+        let cnpj: string | undefined;
+        let nb: string | undefined;
+        let especie: number | undefined;
+        let situacao: string | undefined;
+
+        if (benefitMatch) {
+          tipo = 'Benefício';
+          especie = parseInt(benefitMatch[2]);
+          empresa = `Benefício ${especie}`;
           
-          const empMatch = nextLine.match(/(?:Nome do Empregador|Empregador|Empresa|Razão Social):\s*(.+)/i);
-          if (empMatch) {
-            companyName = empMatch[1].trim();
-            break;
+          // Look for dates in the same line: (09/12/2012 a 10/01/2013)
+          const datesMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s*(?:a|à)\s*(\d{2}\/\d{2}\/\d{4})/);
+          if (datesMatch) {
+            inicio = formatDateToIso(datesMatch[1]);
+            fim = formatDateToIso(datesMatch[2]);
           }
-          
-          // If the line is just uppercase text and not a date/cnpj, it might be the name
-          if (nextLine === nextLine.toUpperCase() && nextLine.length > 5 && !nextLine.match(/\d/) && !nextLine.includes(':')) {
-            companyName = nextLine.trim();
-            break;
+          if (line.includes('CESSADO')) situacao = 'CESSADO';
+        } else {
+          cnpj = linkHeaderMatch![2];
+          const parts = line.split(/\s{2,}/);
+          if (parts.length >= 5) {
+            empresa = parts[3];
+            inicio = formatDateToIso(parts[4]);
+            if (parts[5] && parts[5].match(/\d{2}\/\d{2}\/\d{4}/)) {
+              fim = formatDateToIso(parts[5]);
+            }
           }
         }
+
+        currentVinculo = {
+          id: Math.random().toString(36).substr(2, 9),
+          seq: currentSeq,
+          empresa: empresa || 'Empresa não identificada',
+          cnpj,
+          nb,
+          especie,
+          inicio,
+          fim,
+          tipo,
+          situacao,
+          salarios: [],
+          indicadores: []
+        };
+        continue;
       }
-      currentVinculo.empresa = companyName || 'Empresa não identificada';
+    }
+
+    // Special case for MEI/Recolhimento (Seq. 19/20)
+    const meiMatch = line.match(/^Seq\.(\d+):\s*(RECOLHIMENTO|AGRUPAMENTO)/i);
+    if (meiMatch) {
+      const seq = parseInt(meiMatch[1]);
+      if (seq > currentSeq) {
+        if (currentVinculo) result.vinculos.push(currentVinculo as CnisVinculo);
+        currentSeq = seq;
+        inRemunerations = true; // MEI usually lists competencies directly
+        
+        const datesMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s*(?:a|à)\s*(\d{2}\/\d{2}\/\d{4})/);
+        
+        currentVinculo = {
+          id: Math.random().toString(36).substr(2, 9),
+          seq: currentSeq,
+          empresa: meiMatch[2].toUpperCase(),
+          tipo: 'MEI',
+          inicio: datesMatch ? formatDateToIso(datesMatch[1]) : '',
+          fim: datesMatch ? formatDateToIso(datesMatch[2]) : undefined,
+          salarios: [],
+          indicadores: []
+        };
+        continue;
+      }
     }
 
     if (currentVinculo) {
-      // Extract Dates
-      const startMatch = line.match(/(?:Início|Data Início):\s*(\d{2}\/\d{2}\/\d{4})/i);
-      if (startMatch) currentVinculo.inicio = formatDateToIso(startMatch[1]);
-      
-      const endMatch = line.match(/(?:Fim|Data Fim|Término):\s*(\d{2}\/\d{2}\/\d{4})/i);
-      if (endMatch) currentVinculo.fim = formatDateToIso(endMatch[1]);
+      // Indicators for link
+      if (line.startsWith('Indicadores:')) {
+        const indicators = line.replace('Indicadores:', '').trim().split(/\s+/);
+        currentVinculo.indicadores = [...(currentVinculo.indicadores || []), ...indicators];
+      }
 
-      // Extract Salaries - Strict Pattern: MM/YYYY followed by Value
-      // Avoid matching years like 2024 as values
-      const competenceMatch = line.match(/^(\d{2}\/\d{4})/);
-      if (competenceMatch) {
-        const comp = competenceMatch[1];
-        const restOfLine = line.replace(comp, '').trim();
-        
-        // Look for values like 1.234,56 or 1234,56
-        // Must have a comma and two digits at the end
-        const valueMatch = restOfLine.match(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/);
-        if (valueMatch) {
-          const competencia = formatCompetenciaToIso(comp);
-          const valor = parseCurrency(valueMatch[1]);
+      // Remunerations section
+      if (line.includes('— Remunerações —')) {
+        inRemunerations = true;
+        continue;
+      }
+
+      if (inRemunerations) {
+        // MEI format: 09/2024 14/11/2024 70,60 1.412,00 IREC-MEI
+        const meiRowMatch = line.match(/^(\d{2}\/\d{4})\s+\d{2}\/\d{2}\/\d{4}\s+[\d\.\,]+\s+([\d\.\,]+)(.*)/);
+        if (meiRowMatch) {
+          const competencia = formatCompetenciaToIso(meiRowMatch[1]);
+          const valor = parseCurrency(meiRowMatch[2]);
+          const indicadores = meiRowMatch[3].trim().split(/[\s,]+/).filter(x => x.length > 0);
           
-          // Basic validation: salary shouldn't be just a year (e.g. 2024,00 is possible but 2024 is not)
-          if (competencia && valor > 0 && !currentVinculo.salarios?.some(s => s.competencia === competencia)) {
-            currentVinculo.salarios?.push({ competencia, valor });
+          addOrUpdateSalario(currentVinculo, { competencia, valor, indicadores });
+          continue;
+        }
+
+        // Standard format: 10/2003 33,00 11/2003 90,00
+        const stdMatches = line.matchAll(/(\d{2}\/\d{4})\s+([\d\.\,]+)/g);
+        for (const match of stdMatches) {
+          const competencia = formatCompetenciaToIso(match[1]);
+          const valor = parseCurrency(match[2]);
+          if (competencia && valor > 0) {
+            addOrUpdateSalario(currentVinculo, { competencia, valor });
           }
         }
       }
-
-      // Detect Special Time
-      if (line.match(/\b(IEAN|AEE|PEN|PENS|ESPECIAL|INSALUBRE)\b/i)) {
-        currentVinculo.especial = true;
-      }
     }
   }
 
-  // Push last link
-  if (currentVinculo && (currentVinculo.empresa || currentVinculo.inicio)) {
+  if (currentVinculo) {
     result.vinculos.push(currentVinculo as CnisVinculo);
   }
 
-  // Deduplicate and sort
-  const unique = new Map<string, CnisVinculo>();
-  result.vinculos.forEach(v => {
-    const key = `${v.empresa}-${v.inicio}`;
-    if (!unique.has(key) || (v.salarios?.length || 0) > (unique.get(key)?.salarios?.length || 0)) {
-      unique.set(key, v);
-    }
-  });
-
-  result.vinculos = Array.from(unique.values())
-    .sort((a, b) => {
-      if (!a.inicio) return 1;
-      if (!b.inicio) return -1;
-      return b.inicio.localeCompare(a.inicio);
-    });
+  // Sort and clean
+  result.vinculos = result.vinculos.sort((a, b) => (a.seq || 0) - (b.seq || 0));
 
   return result;
+}
+
+function addOrUpdateSalario(vinculo: Partial<CnisVinculo>, novoSalario: CnisSalario) {
+  if (!vinculo.salarios) vinculo.salarios = [];
+  
+  const existing = vinculo.salarios.find(s => s.competencia === novoSalario.competencia);
+  if (existing) {
+    // If IREM-ACD is present, we should sum. Otherwise, use the new value if it's higher
+    if (novoSalario.indicadores?.includes('IREM-ACD')) {
+      existing.valor += novoSalario.valor;
+    } else {
+      existing.valor = Math.max(existing.valor, novoSalario.valor);
+    }
+    if (novoSalario.indicadores) {
+      existing.indicadores = [...new Set([...(existing.indicadores || []), ...novoSalario.indicadores])];
+    }
+  } else {
+    vinculo.salarios.push(novoSalario);
+  }
 }
 
 function formatDateToIso(dateStr: string): string {
@@ -155,25 +204,7 @@ function formatCompetenciaToIso(compStr: string): string {
 
 function parseCurrency(valStr: string): number {
   if (!valStr) return 0;
-  
-  // Remove R$ and spaces
-  let clean = valStr.replace(/R\$/g, '').replace(/\s/g, '').trim();
-  
-  // Standard BR format: 1.234,56
-  if (clean.includes(',') && clean.includes('.')) {
-    clean = clean.replace(/\./g, '').replace(',', '.');
-  } 
-  else if (clean.includes(',')) {
-    clean = clean.replace(',', '.');
-  }
-  else if (clean.includes('.')) {
-    const parts = clean.split('.');
-    if (parts[parts.length - 1].length !== 2) {
-      clean = clean.replace(/\./g, '');
-    }
-  }
-
-  const num = parseFloat(clean);
-  if (isNaN(num) || num < 0.01) return 0;
-  return num;
+  // Remove dots (thousands) and replace comma with dot (decimal)
+  let clean = valStr.replace(/\./g, '').replace(',', '.').replace(/[^\d\.]/g, '');
+  return parseFloat(clean) || 0;
 }

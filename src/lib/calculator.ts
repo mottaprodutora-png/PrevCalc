@@ -41,30 +41,51 @@ export function calcularPrevidencia(
     const inicio = parseISO(v.inicio);
     const fim = v.fim ? parseISO(v.fim) : hoje;
     
-    // Add days to the set
-    let current = inicio;
-    while (isBefore(current, fim) || current.getTime() === fim.getTime()) {
-      diasContribuidos.add(format(current, 'yyyy-MM-dd'));
-      current = addDays(current, 1);
-    }
+    // Períodos de benefício por incapacidade (espécie 31) contam como tempo de contribuição
+    const isEspecie31 = v.tipo === 'Benefício' && v.especie === 31;
+    const shouldCount = v.tipo !== 'Benefício' || isEspecie31;
 
-    // Add months to carencia
-    const interval = eachMonthOfInterval({ start: startOfMonth(inicio), end: endOfMonth(fim) });
-    interval.forEach(m => {
-      const comp = format(m, 'yyyy-MM');
-      mesesCarencia.add(comp);
-    });
+    if (shouldCount) {
+      // Add days to the set (Set handles concomitant periods automatically)
+      let current = inicio;
+      while (isBefore(current, fim) || current.getTime() === fim.getTime()) {
+        const comp = format(current, 'yyyy-MM');
+        
+        // PDT-NASC-FIL-INV -> Idade do filiado menor que permitida — desconsiderar essas competências
+        const hasInvalidIndicator = v.salarios?.some(s => 
+          s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
+        );
+
+        if (!hasInvalidIndicator) {
+          diasContribuidos.add(format(current, 'yyyy-MM-dd'));
+        }
+        current = addDays(current, 1);
+      }
+
+      // Add months to carencia
+      const interval = eachMonthOfInterval({ start: startOfMonth(inicio), end: endOfMonth(fim) });
+      interval.forEach(m => {
+        const comp = format(m, 'yyyy-MM');
+        const hasInvalidIndicator = v.salarios?.some(s => 
+          s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
+        );
+        if (!hasInvalidIndicator) {
+          mesesCarencia.add(comp);
+        }
+      });
+    }
 
     // Collect salaries
     v.salarios?.forEach(s => {
-      if (s.valor > 0) {
+      // PDT-NASC-FIL-INV -> desconsiderar
+      if (s.valor > 0 && !s.indicadores?.includes('PDT-NASC-FIL-INV')) {
         salariosContribuicao.push(s);
       }
     });
 
     // Add to timeline
     timeline.push({
-      tipo: v.especial ? 'Especial' : v.tipo === 'Rural' ? 'Rural' : 'Trabalho',
+      tipo: v.especial ? 'Especial' : v.tipo === 'Rural' ? 'Rural' : v.tipo === 'Benefício' ? 'Invalido' : 'Trabalho',
       descricao: v.empresa,
       periodo: `${format(inicio, 'dd/MM/yyyy')} - ${v.fim ? format(fim, 'dd/MM/yyyy') : 'Atual'}`,
       inicio: v.inicio,
@@ -241,9 +262,21 @@ function calculateDaysUntil(vinculos: CnisVinculo[], limitDate: Date): number {
     const end = v.fim ? parseISO(v.fim) : new Date();
     const actualEnd = isBefore(end, limitDate) ? end : limitDate;
     
-    while (isBefore(current, actualEnd) || current.getTime() === actualEnd.getTime()) {
-      days.add(format(current, 'yyyy-MM-dd'));
-      current = addDays(current, 1);
+    const isEspecie31 = v.tipo === 'Benefício' && v.especie === 31;
+    const shouldCount = v.tipo !== 'Benefício' || isEspecie31;
+
+    if (shouldCount) {
+      while (isBefore(current, actualEnd) || current.getTime() === actualEnd.getTime()) {
+        const comp = format(current, 'yyyy-MM');
+        const hasInvalidIndicator = v.salarios?.some(s => 
+          s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
+        );
+
+        if (!hasInvalidIndicator) {
+          days.add(format(current, 'yyyy-MM-dd'));
+        }
+        current = addDays(current, 1);
+      }
     }
   });
   return days.size;
@@ -259,20 +292,37 @@ function calcularCoeficiente(anos: number, sexo: 'M' | 'F'): number {
 function verificarInconsistencias(vinculos: CnisVinculo[]): Inconsistencia[] {
   const incs: Inconsistencia[] = [];
   vinculos.forEach(v => {
-    if (!v.fim && isBefore(parseISO(v.inicio), addDays(new Date(), -90))) {
+    if (!v.fim && isBefore(parseISO(v.inicio), addDays(new Date(), -90)) && v.tipo !== 'Benefício') {
       incs.push({
         tipo: 'Vínculo Incompleto',
         descricao: `Vínculo na empresa ${v.empresa} sem data de fim.`,
         periodo: `${v.inicio} - Aberto`
       });
     }
-    if (v.salarios && v.salarios.length === 0 && v.tipo !== 'Rural') {
+    if (v.salarios && v.salarios.length === 0 && v.tipo !== 'Rural' && v.tipo !== 'Benefício') {
       incs.push({
         tipo: 'Sem Remuneração',
         descricao: `Vínculo na empresa ${v.empresa} sem salários registrados.`,
         periodo: v.inicio
       });
     }
+
+    v.salarios?.forEach(s => {
+      if (s.indicadores?.includes('PSC-MEN-SM-EC103')) {
+        incs.push({
+          tipo: 'Abaixo do Mínimo',
+          descricao: `Competência ${s.competencia} na empresa ${v.empresa} está abaixo do mínimo (PSC-MEN-SM-EC103).`,
+          periodo: s.competencia
+        });
+      }
+      if (s.indicadores?.includes('IREC-INDPEND')) {
+        incs.push({
+          tipo: 'Vínculo Incompleto',
+          descricao: `Competência ${s.competencia} na empresa ${v.empresa} possui pendência no recolhimento (IREC-INDPEND).`,
+          periodo: s.competencia
+        });
+      }
+    });
   });
   return incs;
 }

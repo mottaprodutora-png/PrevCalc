@@ -507,6 +507,7 @@ export default function App() {
                               <Briefcase size={18} />
                             </div>
                             <h4 className="font-bold text-sm text-brand-text truncate max-w-[200px]">
+                              {v.seq && <span className="text-brand-primary mr-1 text-[10px]">#{v.seq}</span>}
                               {v.empresa && !v.empresa.toLowerCase().includes('cadastro nacional') ? v.empresa : 'Vínculo Identificado'}
                             </h4>
                           </div>
@@ -589,6 +590,16 @@ export default function App() {
                             <option>Rural</option>
                           </select>
                         </div>
+
+                        {v.indicadores && v.indicadores.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-4">
+                            {v.indicadores.map((ind, iIdx) => (
+                              <span key={iIdx} className="text-[8px] bg-brand-bg px-1.5 py-0.5 rounded border border-brand-border text-brand-muted font-bold uppercase tracking-tighter">
+                                {ind}
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
                         <div className="bg-brand-bg/50 rounded-xl p-4 border border-brand-border/50">
                           <div className="flex justify-between items-center mb-3">
@@ -1258,10 +1269,20 @@ export default function App() {
                         <div key={v.id} className="bg-brand-bg/30 border border-brand-border rounded-3xl overflow-hidden">
                           <div className="bg-brand-bg/50 p-6 border-b border-brand-border flex justify-between items-center">
                             <div>
-                              <h4 className="font-bold text-brand-text text-lg">{v.empresa || 'Vínculo não identificado'}</h4>
-                              <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mt-1">
-                                {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '??'} a {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
-                              </p>
+                              <h4 className="font-bold text-brand-text text-lg">
+                                {v.seq && <span className="text-brand-primary mr-2">Seq.{String(v.seq).padStart(2, '0')}</span>}
+                                {v.empresa || 'Vínculo não identificado'}
+                              </h4>
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest">
+                                  {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '??'} a {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
+                                </p>
+                                {v.indicadores?.map((ind, iIdx) => (
+                                  <span key={iIdx} className="text-[8px] bg-brand-bg px-1.5 py-0.5 rounded border border-brand-border text-brand-muted font-bold">
+                                    {ind}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                             <div className="text-right">
                               <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mb-1">Contribuições</p>
@@ -1275,6 +1296,9 @@ export default function App() {
                                   <div key={sIdx} className="bg-white border border-brand-border/50 p-3 rounded-xl text-center">
                                     <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{safeFormat(s.competencia + '-01', 'MM/yyyy')}</p>
                                     <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    {s.indicadores?.map((ind, iIdx) => (
+                                      <p key={iIdx} className="text-[7px] text-brand-primary font-bold mt-0.5">{ind}</p>
+                                    ))}
                                   </div>
                                 ))}
                               </div>

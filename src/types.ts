@@ -1,16 +1,23 @@
 export interface CnisVinculo {
   id: string;
+  seq?: number;
   empresa: string;
+  cnpj?: string;
+  nb?: string; // Número do benefício
+  especie?: number; // Espécie do benefício
   inicio: string; // ISO date
   fim?: string;   // ISO date
-  tipo: 'Empregado' | 'Contribuinte Individual' | 'Facultativo' | 'Especial' | 'Rural';
+  tipo: 'Empregado' | 'Contribuinte Individual' | 'Facultativo' | 'Especial' | 'Rural' | 'Benefício' | 'MEI';
+  situacao?: string; // CESSADO, ATIVO
   especial?: boolean;
   salarios: CnisSalario[];
+  indicadores?: string[];
 }
 
 export interface CnisSalario {
   competencia: string; // YYYY-MM
   valor: number;
+  indicadores?: string[];
 }
 
 export interface CalculoResultado {
