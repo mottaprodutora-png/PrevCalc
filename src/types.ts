@@ -18,7 +18,7 @@ export interface CalculoResultado {
     tempoTotalDias: number;
     tempoTotalFormatado: string;
     carenciaMeses: number;
-    statusAtual: 'Apto' | 'Não Apto';
+    statusAtual: 'Apto' | 'Não Apto' | 'Não se aplica';
     tempoFaltanteFormatado: string;
     previsaoAposentadoria: string;
     percentualConcluido: number;
@@ -60,7 +60,7 @@ export interface TimelineEvent {
 
 export interface RegraSimulada {
   nome: string;
-  status: 'Apto' | 'Não Apto';
+  status: 'Apto' | 'Não Apto' | 'Não se aplica';
   dataAptidao?: string;
   tempoFaltanteDias?: number;
   descricao: string;

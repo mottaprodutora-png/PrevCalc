@@ -928,7 +928,8 @@ export default function App() {
                         <div className="col-span-3">
                           <span className={cn(
                             "text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider",
-                            regra.status === 'Apto' ? "bg-green-100 text-green-700" : "bg-brand-bg text-brand-muted"
+                            regra.status === 'Apto' ? "bg-green-100 text-green-700" : 
+                            regra.status === 'Não se aplica' ? "bg-gray-100 text-gray-400" : "bg-brand-bg text-brand-muted"
                           )}>
                             {regra.status}
                           </span>
@@ -936,9 +937,12 @@ export default function App() {
                         <div className="col-span-3 text-right">
                           <p className={cn(
                             "text-xs font-bold",
-                            regra.status === 'Apto' ? "text-green-600" : "text-brand-text"
+                            regra.status === 'Apto' ? "text-green-600" : 
+                            regra.status === 'Não se aplica' ? "text-gray-400" : "text-brand-text"
                           )}>
-                            {regra.status === 'Apto' ? 'IMEDIATO' : `+${Math.ceil((regra.tempoFaltanteDias || 0) / 30.44)} meses`}
+                            {regra.status === 'Apto' ? 'IMEDIATO' : 
+                             regra.status === 'Não se aplica' ? 'N/A' :
+                             `+${Math.ceil((regra.tempoFaltanteDias || 0) / 30.44)} meses`}
                           </p>
                         </div>
                       </div>
@@ -1179,7 +1183,8 @@ export default function App() {
                               <td className="p-5">
                                 <span className={cn(
                                   "px-3 py-1 rounded-full font-bold uppercase text-[9px] tracking-widest",
-                                  regra.status === 'Apto' ? "bg-green-100 text-green-700" : "bg-brand-bg text-brand-muted"
+                            regra.status === 'Apto' ? "bg-green-100 text-green-700" : 
+                            regra.status === 'Não se aplica' ? "bg-gray-100 text-gray-400" : "bg-brand-bg text-brand-muted"
                                 )}>
                                   {regra.status}
                                 </span>
@@ -1187,12 +1192,14 @@ export default function App() {
                               <td className="p-5 font-bold text-brand-text">
                                 {regra.status === 'Apto' ? 
                                   <span className="text-green-600 flex items-center gap-1"><ShieldCheck size={12} /> CONCLUÍDO</span> : 
+                                  regra.status === 'Não se aplica' ? 'N/A' :
                                   `${Math.ceil((regra.tempoFaltanteDias || 0) / 365.25)} ANOS`
                                 }
                               </td>
                               <td className="p-5 text-right font-bold text-brand-text">
                                 {regra.status === 'Apto' ? 
                                   <span className="text-green-600">IMEDIATO</span> : 
+                                  regra.status === 'Não se aplica' ? '---' :
                                   safeFormat(addDays(new Date(), regra.tempoFaltanteDias || 0), 'MM/yyyy')
                                 }
                               </td>
