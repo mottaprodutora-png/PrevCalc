@@ -6,8 +6,7 @@ export function parseCnisWithRegex(text: string): { nome?: string, dataNasciment
   // 1. Extração do Nome do Titular (antes de filtrar cabeçalhos)
   // O nome do titular está na mesma linha que NIT e CPF, após Nome:.
   // O nome da mãe está na linha seguinte, após Nome da mãe:.
-  // Procuramos especificamente por Nome: precedido por NIT ou CPF na mesma linha (ou proximidade)
-  const nameMatch = text.match(/(?:NIT|CPF):.*?Nome:\s*([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]+?)(?=\s+Nome da mãe|\s+Data de nascimento|\s+CPF:|$)/i);
+  const nameMatch = text.match(/Nome:\s*([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]+?)(?=\s+Nome da mãe|\s+Data de nascimento|\s+CPF:|$)/i);
   if (nameMatch) {
     result.nome = nameMatch[1].trim().split('\n')[0].trim();
   }
