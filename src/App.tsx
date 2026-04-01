@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { addDays, parseISO, isValid } from 'date-fns';
+import { addDays, parseISO, isValid, eachMonthOfInterval, format } from 'date-fns';
 import { safeFormat } from './lib/dateUtils';
 import { 
   Calculator, 
@@ -44,7 +44,7 @@ export default function App() {
   const [nome, setNome] = useState('');
   const [nascimento, setNascimento] = useState('1970-01-01');
   const [genero, setGenero] = useState<'M' | 'F'>('M');
-  const [activeTab, setActiveTab] = useState<'manual' | 'import' | 'saved'>('manual');
+  const [activeTab, setActiveTab] = useState<'manual' | 'import' | 'saved'>('import');
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [isFileLoading, setIsFileLoading] = useState(false);
@@ -162,7 +162,37 @@ export default function App() {
   };
 
   const updateVinculo = (id: string, updates: Partial<CnisVinculo>) => {
-    setVinculos(vinculos.map(v => v.id === id ? { ...v, ...updates } : v));
+    setVinculos(prev => prev.map(v => {
+      if (v.id !== id) return v;
+      
+      const newVinculo = { ...v, ...updates };
+      
+      // Auto-generate salaries when period changes
+      if ((updates.inicio || updates.fim) && newVinculo.inicio && newVinculo.fim) {
+        try {
+          const start = parseISO(newVinculo.inicio);
+          const end = parseISO(newVinculo.fim);
+          
+          if (isValid(start) && isValid(end) && start <= end) {
+            const months = eachMonthOfInterval({ start, end });
+            
+            // Limit to a reasonable number of months to avoid performance issues (e.g., 50 years = 600 months)
+            if (months.length <= 600) {
+              const newSalarios = months.map(m => {
+                const comp = format(m, 'yyyy-MM');
+                const existing = v.salarios.find(s => s.competencia === comp);
+                return existing || { competencia: comp, valor: 1412 };
+              });
+              newVinculo.salarios = newSalarios;
+            }
+          }
+        } catch (e) {
+          console.error("Erro ao gerar salários:", e);
+        }
+      }
+      
+      return newVinculo;
+    }));
   };
 
   const handleImport = async (textToProcess?: string) => {
@@ -692,6 +722,7 @@ export default function App() {
               type="text" 
               placeholder="Nome do Segurado"
               value={nome || ''}
+              onFocus={(e) => e.target.select()}
               onChange={(e) => setNome(e.target.value)}
               className="text-sm font-medium outline-none w-48 lg:w-64 bg-transparent"
             />
@@ -764,17 +795,6 @@ export default function App() {
         {/* Sidebar - Input Area */}
         <section className="lg:w-[400px] xl:w-[450px] border-r border-brand-border bg-white flex flex-col h-[calc(100vh-73px)] sticky top-[73px]">
           <div className="flex p-4 gap-2 border-b border-brand-border bg-brand-bg/50">
-            <button 
-              onClick={() => setActiveTab('manual')}
-              className={cn(
-                "flex-1 py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2",
-                activeTab === 'manual' 
-                  ? "bg-white text-brand-primary shadow-sm border border-brand-border" 
-                  : "text-brand-muted hover:bg-white/50"
-              )}
-            >
-              <Plus size={14} /> Entrada Manual
-            </button>
             <button 
               onClick={() => setActiveTab('import')}
               className={cn(
@@ -880,6 +900,7 @@ export default function App() {
                             <input 
                               type="text" 
                               value={v.empresa || ''}
+                              onFocus={(e) => e.target.select()}
                               onChange={(e) => updateVinculo(v.id, { empresa: e.target.value })}
                               className="w-full font-bold text-sm text-brand-text bg-brand-bg border border-brand-border rounded-lg px-3 py-2 focus:border-brand-primary outline-none transition-all"
                               placeholder="Ex: Empresa ABC Ltda"
@@ -962,7 +983,7 @@ export default function App() {
                             <button 
                               onClick={() => {
                                 const competencia = safeFormat(new Date(), 'yyyy-MM');
-                                updateVinculo(v.id, { salarios: [...v.salarios, { competencia, valor: 1320 }] });
+                                updateVinculo(v.id, { salarios: [...v.salarios, { competencia, valor: 1412 }] });
                               }}
                               className="text-[10px] font-bold text-brand-primary uppercase tracking-wider flex items-center gap-1 hover:bg-brand-primary/10 px-2 py-1 rounded-md transition-all"
                             >
@@ -993,6 +1014,7 @@ export default function App() {
                                       type="number" 
                                       step="0.01"
                                       value={s.valor ?? ''}
+                                      onFocus={(e) => e.target.select()}
                                       onChange={(e) => {
                                         const newSalarios = [...v.salarios];
                                         newSalarios[sIdx].valor = parseFloat(e.target.value) || 0;

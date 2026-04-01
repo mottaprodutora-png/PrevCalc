@@ -29,7 +29,7 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, data
 
               O texto pode vir de um PDF e conter ruídos de formatação, tabelas quebradas e cabeçalhos repetidos. 
               Foque em identificar:
-              1. Nome Completo do Segurado/Contribuinte (geralmente no topo do documento).
+              1. Nome Completo do Segurado/Contribuinte (geralmente no topo do documento). Se houver mais de uma ocorrência de "Nome:", use a que parece ser o nome completo do segurado, ignorando nomes de instituições (como INSS) ou da mãe.
               2. Data de Nascimento do Segurado (geralmente no topo do documento).
               3. Nome da Empresa/Empregador (ou NIT do empregador).
               4. Data de Início e Fim de cada vínculo.
@@ -38,6 +38,8 @@ export async function parseCnisText(text: string): Promise<{ nome?: string, data
               7. Lista de salários por competência (Mês/Ano - ex: 01/2020) e o valor correspondente.
 
               REGRAS IMPORTANTES:
+              - Se houver múltiplos campos "Nome:", o primeiro pode ser o nome do órgão ou do extrato. O nome do segurado geralmente é o segundo ou está associado ao NIT/CPF.
+              - NÃO extraia o "Nome da Mãe" como sendo o nome do segurado. Verifique se o nome extraído não é precedido por "Nome da mãe" ou similar no texto original.
               - Se uma competência não tiver valor, ignore-a.
               - Se o vínculo não tiver data de fim, deixe o campo "fim" como null ou omitido.
               - Converta as datas para o formato ISO (YYYY-MM-DD).
