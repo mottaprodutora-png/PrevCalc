@@ -287,7 +287,7 @@ export function calcularPrevidencia(
       carenciaMeses: mesesCarencia.size,
       statusAtual: melhorRegra.status,
       tempoFaltanteFormatado: melhorRegra.tempoFaltanteDias ? `${Math.ceil(melhorRegra.tempoFaltanteDias / 365.25)} anos` : 'Requisito atingido',
-      previsaoAposentadoria: melhorRegra.dataAptidao || 'Calculando...',
+      previsaoAposentadoria: melhorRegra.dataAptidao || format(addDays(hoje, melhorRegra.tempoFaltanteDias || 0), 'dd/MM/yyyy'),
       percentualConcluido: Math.min(100, (anosTC / metaTempo) * 100),
       melhorRegraNome: melhorRegra.nome
     },

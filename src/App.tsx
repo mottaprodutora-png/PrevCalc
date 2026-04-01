@@ -276,7 +276,7 @@ export default function App() {
 
     setIsDownloading(true);
     const opt = {
-      margin: [10, 10] as [number, number],
+      margin: [15, 15] as [number, number],
       filename: `Relatorio_PrevCalc_${nome ? nome.replace(/\s+/g, '_') + '_' : ''}${activeReport === 'advogado' ? 'Tecnico' : 'Resumo'}_${safeFormat(new Date(), 'dd_MM_yyyy')}.pdf`,
       image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { 
@@ -284,6 +284,9 @@ export default function App() {
         useCORS: true, 
         letterRendering: true,
         logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 1200, // Fixed width for better layout consistency
         // This helps html2canvas ignore oklch if it's in the stylesheet but not used on the element
         ignoreElements: (element: Element) => element.classList.contains('no-pdf'),
         onclone: (clonedDoc: Document) => {
@@ -297,7 +300,7 @@ export default function App() {
           safeStyle.textContent = `
             /* Basic Reset */
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: sans-serif; background: white; color: #0f172a; }
+            body { font-family: sans-serif; background: white; color: #0f172a; width: 1200px; }
             
             /* Layout Utilities */
             .flex { display: flex; }
@@ -311,30 +314,66 @@ export default function App() {
             .gap-4 { gap: 1rem; }
             .gap-6 { gap: 1.5rem; }
             .gap-8 { gap: 2rem; }
+            .gap-12 { gap: 3rem; }
+            .gap-16 { gap: 4rem; }
             .p-2 { padding: 0.5rem; }
             .p-3 { padding: 0.75rem; }
             .p-4 { padding: 1rem; }
             .p-5 { padding: 1.25rem; }
             .p-6 { padding: 1.5rem; }
+            .p-8 { padding: 2rem; }
             .p-10 { padding: 2.5rem; }
             .p-12 { padding: 3rem; }
+            .px-1\\.5 { padding-left: 0.375rem; padding-right: 0.375rem; }
             .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+            .px-2\\.5 { padding-left: 0.625rem; padding-right: 0.625rem; }
             .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+            .py-0\\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
             .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+            .py-1\\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
             .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+            .pb-4 { padding-bottom: 1rem; }
+            .pb-6 { padding-bottom: 1.5rem; }
+            .pb-12 { padding-bottom: 3rem; }
+            .pt-1 { padding-top: 0.25rem; }
+            .pt-8 { padding-top: 2rem; }
+            .pt-10 { padding-top: 2.5rem; }
+            .pt-20 { padding-top: 5rem; }
+            .pl-12 { padding-left: 3rem; }
+            .mb-0\\.5 { margin-bottom: 0.125rem; }
             .mb-1 { margin-bottom: 0.25rem; }
             .mb-2 { margin-bottom: 0.5rem; }
             .mb-3 { margin-bottom: 0.75rem; }
             .mb-4 { margin-bottom: 1rem; }
             .mb-6 { margin-bottom: 1.5rem; }
             .mb-8 { margin-bottom: 2rem; }
+            .mt-0\\.5 { margin-top: 0.125rem; }
             .mt-1 { margin-top: 0.25rem; }
             .mt-2 { margin-top: 0.5rem; }
             .mt-4 { margin-top: 1rem; }
             .mt-6 { margin-top: 1.5rem; }
             .mt-8 { margin-top: 2rem; }
             .mt-10 { margin-top: 2.5rem; }
+            .mr-2 { margin-right: 0.5rem; }
+            .w-1 { width: 0.25rem; }
+            .w-0\\.5 { width: 0.125rem; }
+            .w-1\\.5 { width: 0.375rem; }
+            .w-4 { width: 1rem; }
+            .w-8 { width: 2rem; }
+            .w-10 { width: 2.5rem; }
+            .w-12 { width: 3rem; }
+            .w-32 { width: 8rem; }
             .w-full { width: 100%; }
+            .h-1 { height: 0.25rem; }
+            .h-0\\.5 { height: 0.125rem; }
+            .h-1\\.5 { height: 0.375rem; }
+            .h-3 { height: 0.75rem; }
+            .h-4 { height: 1rem; }
+            .h-8 { height: 2rem; }
+            .h-10 { height: 2.5rem; }
+            .h-full { height: 100%; }
+            .max-w-xs { max-width: 20rem; }
+            .max-w-2xl { max-width: 42rem; }
             .max-w-4xl { max-width: 56rem; }
             .mx-auto { margin-left: auto; margin-right: auto; }
             .text-center { text-align: center; }
@@ -345,6 +384,12 @@ export default function App() {
             .items-start { align-items: flex-start; }
             
             /* Typography */
+            .text-[7px] { font-size: 7px; }
+            .text-[8px] { font-size: 8px; }
+            .text-[9px] { font-size: 9px; }
+            .text-[10px] { font-size: 10px; }
+            .text-[11px] { font-size: 11px; }
+            .text-[12px] { font-size: 12px; }
             .text-xs { font-size: 0.75rem; }
             .text-sm { font-size: 0.875rem; }
             .text-base { font-size: 1rem; }
@@ -352,6 +397,7 @@ export default function App() {
             .text-xl { font-size: 1.25rem; }
             .text-2xl { font-size: 1.5rem; }
             .text-3xl { font-size: 1.875rem; }
+            .text-4xl { font-size: 2.25rem; }
             .text-5xl { font-size: 3rem; }
             .font-bold { font-weight: 700; }
             .font-medium { font-weight: 500; }
@@ -359,6 +405,9 @@ export default function App() {
             .uppercase { text-transform: uppercase; }
             .tracking-tight { letter-spacing: -0.025em; }
             .tracking-widest { letter-spacing: 0.1em; }
+            .tracking-\\[0\\.4em\\] { letter-spacing: 0.4em; }
+            .tracking-\\[0\\.6em\\] { letter-spacing: 0.6em; }
+            .leading-tight { line-height: 1.25; }
             .leading-relaxed { line-height: 1.625; }
             .italic { font-style: italic; }
             
@@ -369,7 +418,11 @@ export default function App() {
             .text-white { color: #ffffff; }
             .text-green-600 { color: #16a34a; }
             .text-green-700 { color: #15803d; }
+            .text-amber-300 { color: #fcd34d; }
+            .text-amber-600 { color: #d97706; }
             .text-amber-700 { color: #b45309; }
+            .text-red-300 { color: #fca5a5; }
+            .text-red-400 { color: #f87171; }
             .text-red-600 { color: #dc2626; }
             .text-slate-500 { color: #64748b; }
             .text-slate-600 { color: #475569; }
@@ -388,30 +441,46 @@ export default function App() {
             .bg-slate-50 { background-color: #f8fafc; }
             .bg-slate-100 { background-color: #f1f5f9; }
             
+            .bg-brand-primary\\/10 { background-color: rgba(37, 99, 235, 0.1); }
+            .bg-brand-bg\\/30 { background-color: rgba(248, 250, 252, 0.3); }
+            .bg-brand-bg\\/50 { background-color: rgba(248, 250, 252, 0.5); }
+            .bg-white\\/10 { background-color: rgba(255, 255, 255, 0.1); }
+            .bg-white\\/50 { background-color: rgba(255, 255, 255, 0.5); }
+            .bg-red-50\\/50 { background-color: rgba(254, 242, 242, 0.5); }
+            
             .border { border: 1px solid #e2e8f0; }
             .border-2 { border-width: 2px; }
             .border-brand-border { border-color: #e2e8f0; }
             .border-brand-primary { border-color: #2563eb; }
             .border-green-200 { border-color: #bbf7d0; }
             .border-amber-200 { border-color: #fde68a; }
+            .border-red-100 { border-color: #fee2e2; }
             .border-red-200 { border-color: #fecaca; }
             .border-slate-200 { border-color: #e2e8f0; }
             .border-b { border-bottom: 1px solid #e2e8f0; }
             .border-b-2 { border-bottom: 2px solid #2563eb; }
+            .border-t { border-top: 1px solid #e2e8f0; }
+            .border-l { border-left: 1px solid #e2e8f0; }
             .border-l-4 { border-left: 4px solid #e2e8f0; }
             .border-l-brand-primary { border-left-color: #2563eb; }
             
+            .border-brand-border\\/50 { border-color: rgba(226, 232, 240, 0.5); }
+            .border-white\\/10 { border-color: rgba(255, 255, 255, 0.1); }
+            
+            .rounded { border-radius: 0.25rem; }
             .rounded-lg { border-radius: 0.5rem; }
             .rounded-xl { border-radius: 0.75rem; }
             .rounded-2xl { border-radius: 1rem; }
             .rounded-3xl { border-radius: 1.5rem; }
+            .rounded-\\[2\\.5rem\\] { border-radius: 2.5rem; }
             .rounded-full { border-radius: 9999px; }
             
             .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
             .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+            .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
             
             /* Specific Report Overrides */
-            #printable-report { padding: 3rem; background: white; width: 100%; }
+            #printable-report { padding: 40px; background: white; width: 100%; }
             .overflow-hidden { overflow: hidden; }
             .shrink-0 { flex-shrink: 0; }
             .list-disc { list-style-type: disc; }
@@ -421,6 +490,40 @@ export default function App() {
             .space-y-3 > * + * { margin-top: 0.75rem; }
             .space-y-4 > * + * { margin-top: 1rem; }
             .space-y-6 > * + * { margin-top: 1.5rem; }
+            .space-y-8 > * + * { margin-top: 2rem; }
+            .space-y-16 > * + * { margin-top: 4rem; }
+            
+            /* Page Break Logic */
+            section { page-break-inside: auto; break-inside: auto; margin-bottom: 40px; position: relative; display: block; }
+            .grid > div { page-break-inside: avoid; break-inside: avoid; }
+            tr { page-break-inside: avoid; break-inside: avoid; }
+            .rounded-3xl { page-break-inside: avoid; break-inside: avoid; margin-bottom: 20px; }
+            .rounded-\\[2\\.5rem\\] { page-break-inside: avoid; break-inside: avoid; }
+            
+            /* Ensure headers don't get separated from their content */
+            h3, h4 { page-break-after: avoid; break-after: avoid; }
+            
+            /* Force new page for major sections if they are likely to be cut */
+            #printable-report > section:nth-of-type(4) { page-break-before: always; }
+            #printable-report > section:nth-of-type(5) { page-break-before: always; }
+            #printable-report > section:nth-of-type(8) { page-break-before: always; }
+            #printable-report > section:nth-of-type(9) { page-break-before: always; }
+            
+            /* Fix for overlapping headers */
+            h3, h4, h5, h6 { position: relative; display: block; }
+            .flex { display: flex; align-items: center; }
+            
+            /* Ensure background colors render correctly */
+            .bg-brand-text { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .bg-brand-primary { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .bg-brand-bg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            
+            /* Specific fix for the header overlap */
+            .text-center.border-b-2 { margin-bottom: 40px; }
+            .mt-10 { margin-top: 40px; }
+            
+            /* Fix for inline-block black bars */
+            .inline-block { display: inline-block; width: auto; }
           `;
           clonedDoc.head.appendChild(safeStyle);
         }
