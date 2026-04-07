@@ -26,7 +26,7 @@ export function parseCnisWithRegex(text: string): {
     }
   }
   if (validCandidates.length >= 2) {
-    result.nome = validCandidates[1].name;
+result.nome = validCandidates[0].name;
   } else if (validCandidates.length === 1) {
     result.nome = validCandidates[0].name;
   }
