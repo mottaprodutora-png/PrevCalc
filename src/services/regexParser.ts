@@ -1,284 +1,396 @@
 import { CnisVinculo, CnisSalario } from "../types";
 
-export function parseCnisWithRegex(text: string): { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } {
-  const result: { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } = { vinculos: [] };
-  
-  // 1. Extração do Nome do Titular (antes de filtrar cabeçalhos)
-  // O nome do titular geralmente está após "Nome:" ou "Nome do Filiado:".
-  // Evitamos o nome da mãe e nomes de instituições.
-  // Usamos uma regex que tenta capturar o nome, mas ignoramos se for "Nome da mãe".
-  const nameMatches = Array.from(text.matchAll(/(?:Nome|Nome do Filiado):\s*([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s\.]+?)(?=\s+Nome da mãe|\s+Data de nascimento|\s+CPF:|\s+NIT:|\r?\n|$)/gi));
-  
-  const validCandidates: { name: string, index: number }[] = [];
+export function parseCnisWithRegex(text: string): { 
+  nome?: string, 
+  dataNascimento?: string, 
+  vinculos: CnisVinculo[] 
+} {
+  const result: { nome?: string, dataNascimento?: string, vinculos: CnisVinculo[] } = { 
+    vinculos: [] 
+  };
 
+  // 1. Nome do titular
+  const nameMatches = Array.from(text.matchAll(
+    /(?:^|\n)Nome:\s*([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ][A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s\.]+?)(?=\s+Nome da mãe|\s+Data de nascimento|\s+CPF:|\s+NIT:|\r?\n|$)/gm
+  ));
+  const validCandidates: { name: string, index: number }[] = [];
   for (const match of nameMatches) {
-    const fullMatch = match[0];
     const candidate = match[1].trim().split('\n')[0].trim();
     const index = match.index || 0;
-    
-    // Verifica se o match completo começa com "Nome da mãe" ou "Nome do pai"
-    // Embora a regex tente pegar apenas "Nome:", em alguns casos pode haver confusão
-    const isMotherLabel = fullMatch.toLowerCase().includes("mãe");
-    const isFatherLabel = fullMatch.toLowerCase().includes("pai");
-    
-    const contextBefore = text.substring(Math.max(0, index - 20), index).toLowerCase();
-    const isMotherContext = contextBefore.includes("mãe");
-    const isFatherContext = contextBefore.includes("pai");
-    
-    // Critérios para um nome válido de segurado:
-    // 1. Não pode ser o rótulo de mãe ou pai
-    // 2. Não deve ser o nome do INSS ou do extrato
-    // 3. Não deve começar com "DA MÃE" ou similar (caso a regex tenha pego o resto do rótulo)
+    const contextBefore = text.substring(Math.max(0, index - 30), index).toLowerCase();
     const isInstitution = candidate.includes("INSTITUTO NACIONAL") || 
-                          candidate.includes("MINISTÉRIO DA PREVIDÊNCIA") ||
-                          candidate.includes("PREVIDÊNCIA SOCIAL");
-    
-    const startsWithMother = candidate.toUpperCase().startsWith("DA MÃE") || 
-                             candidate.toUpperCase().startsWith("MÃE:");
-
-    if (!isMotherLabel && !isFatherLabel && !isMotherContext && !isFatherContext && !isInstitution && !startsWithMother && candidate.length > 5) {
+                          candidate.includes("MINISTÉRIO");
+    if (!contextBefore.includes("mãe") && !contextBefore.includes("pai") && 
+        !isInstitution && candidate.length > 5) {
       validCandidates.push({ name: candidate, index });
     }
   }
-
-  // Lógica de seleção do nome:
-  // No CNIS, às vezes o primeiro "Nome:" é o cabeçalho do INSS (já filtrado acima).
-  // O segundo "Nome:" costuma ser o do segurado.
-  // O terceiro costuma ser o da mãe (também filtrado acima).
   if (validCandidates.length >= 2) {
-    // Se temos pelo menos 2 candidatos válidos (que não são mãe/pai/instituição),
-    // o segundo costuma ser o mais confiável no layout do CNIS detalhado.
     result.nome = validCandidates[1].name;
   } else if (validCandidates.length === 1) {
     result.nome = validCandidates[0].name;
   }
 
-  // Extração da Data de Nascimento
+  // 2. Data de nascimento
   const birthMatch = text.match(/Data de nascimento:\s*(\d{2}\/\d{2}\/\d{4})/i);
   if (birthMatch) {
     result.dataNascimento = formatDateToIso(birthMatch[1]);
   }
 
-  // 2. Filtragem de Cabeçalhos Repetidos
-  const lines = text.split('\n')
+  // 3. Dividir o texto em BLOCOS por Seq.
+  // Cada bloco começa com o número de sequência e vai até o próximo
+  // Usamos uma regex que detecta o padrão de início de bloco:
+  // - Linha com apenas um número (1-3 dígitos) — padrão do CNIS
+  // - Ou "Seq. N" explícito para benefícios/MEI
+  
+  // Primeiro, normalizamos quebras de linha
+  const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Dividimos por marcadores de sequência que o INSS usa
+  // O padrão no PDF extraído é: número isolado numa linha, seguido de NIT/CNPJ
+  // OU linhas do tipo "Código Emp. ... Seq. NIT Vín ..."
+  
+  // Estratégia: encontrar todas as posições onde começa um novo vínculo
+  // usando o padrão de "Seq. N" nos cabeçalhos de tabela do CNIS
+  
+  // O CNIS usa "Seq. NIT Vín" como cabeçalho, e logo abaixo vem:
+  // "N  NIT_DO_SEGURADO  CNPJ_EMPRESA  NOME_EMPRESA"
+  // OU para benefícios: "N  NIT_DO_SEGURADO  NB  Benefício  ESPECIE  DATA"
+  
+  // Vamos dividir por blocos identificando onde cada sequência começa
+  // através da linha que contém CNPJ (empregador) ou NB (benefício)
+  
+  // --- NOVA ABORDAGEM: blocos separados por cabeçalho de vínculo ---
+  
+  // Remove cabeçalhos repetidos de página
+  const cleanedLines = normalizedText.split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0)
-    .filter(l => {
-      const isHeader = 
-        l.includes("INSS") || 
-        l.includes("CNIS - Cadastro Nacional") || 
-        l.includes("Extrato Previdenciário") || 
-        l.includes("Identificação do Filiado") || 
-        l.includes("Relações Previdenciárias") || 
-        l.includes("O INSS poderá rever") || 
-        (l.includes("NIT:") && l.includes("CPF:") && l.includes("Nome:")) || // Remove a linha do titular/CPF que se repete
-        /Página \d+ de \d+/.test(l);
-      return !isHeader;
-    });
+    .filter(l => !l.includes("INSS") || l.match(/\d{2}\/\d{4}/))  // mantém linhas com datas mesmo que tenham "INSS"
+    .filter(l => !l.includes("CNIS - Cadastro Nacional"))
+    .filter(l => !l.includes("Extrato Previdenciário"))
+    .filter(l => !l.includes("Identificação do Filiado"))
+    .filter(l => !l.includes("Relações Previdenciárias"))
+    .filter(l => !l.includes("O INSS poderá rever"))
+    .filter(l => !/Página \d+ de \d+/.test(l))
+    .filter(l => !/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/.test(l))
+    // Remove linha do titular que se repete em cada página
+    .filter(l => !(l.includes("NIT:") && l.includes("CPF:") && l.includes("Nome:")))
+    .filter(l => !l.startsWith("Nome da mãe:"))
+    .filter(l => !l.startsWith("Data de nascimento:") && !l.startsWith("Nome:") && !l.startsWith("NIT:"))
+    // Remove cabeçalhos de tabela
+    .filter(l => !l.match(/^Seq\.\s+NIT\s+/i))
+    .filter(l => !l.match(/^Matrícula do/i))
+    .filter(l => !l.match(/^Trabalhador/i))
+    .filter(l => !l.match(/^Tipo Filiado no/i))
+    .filter(l => !l.match(/^Vínculo/i))
+    .filter(l => !l.match(/^Código Emp\.\s+Origem do Vínculo/i))
+    .filter(l => !l.match(/^Competência\s+Remuneração\s+Indicadores/i))
+    .filter(l => !l.match(/^Remunerações\s*$/i))
+    .filter(l => !l.match(/^Contribuições\s*$/i))
+    .filter(l => !l.match(/^Data Início\s+Data Fim/i));
 
-  let currentVinculo: Partial<CnisVinculo> | null = null;
-  let currentSeq = 0;
+  // Identifica linhas que são cabeçalho de vínculo empregador
+  // Padrão: CNPJ isolado em linha ou CNPJ + nome empresa
+  // No texto extraído do INSS, o cabeçalho de cada vínculo tem este formato após limpeza:
+  // Linha com CNPJ: "XX.XXX.XXX/XXXX-XX  NOME DA EMPRESA"
+  // OU NIT do beneficiário seguido de NB para benefícios
+  
+  // Vamos reconstruir os blocos identificando o início de cada vínculo
+  // O início é identificado por uma linha que contém um CNPJ formatado
+  // (para empregadores) ou "Benefício" + número (para benefícios/auxílios)
+  
+  interface VinculoBlock {
+    seq: number;
+    lines: string[];
+    tipo: 'empregador' | 'beneficio' | 'mei' | 'agrupamento';
+    headerLine: string;
+  }
+  
+  const blocks: VinculoBlock[] = [];
+  let currentBlock: VinculoBlock | null = null;
+  let seqCounter = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // 3. Detecção de Novo Vínculo (Seq. NIT/CNPJ Nome...)
-    // Padrão: número inteiro (1-3 dígitos) + NIT (11-14 dígitos formatados) + CNPJ/Nome
-    // Ex: 1    160.09612.11-0  94.420.080/0001-88   INDUSTRIA DE EQUIP...
-    // Evitamos casar o NIT do titular como Seq. limitando o primeiro grupo a 3 dígitos e exigindo um NIT logo após
-    const linkHeaderMatch = line.match(/^(\d{1,3})\s+(\d{3}[\.\s]?\d{5}[\.\s]?\d{2}[-\s]?\d)\s+(.+)/);
-    const benefitMatch = line.match(/^Seq\.(\d+)(?::|-)\s*Benefício\s*(\d+)/i);
-    const meiMatch = line.match(/^Seq\.(\d+)(?::|-)\s*(RECOLHIMENTO|AGRUPAMENTO|MEI)/i);
-
-    const match = linkHeaderMatch || benefitMatch || meiMatch;
-
-    if (match) {
-      const seq = parseInt(match[1]);
+  for (let i = 0; i < cleanedLines.length; i++) {
+    const line = cleanedLines[i];
+    
+    // Detecta cabeçalho de empregador: linha com CNPJ (XX.XXX.XXX/XXXX-XX)
+    const cnpjLineMatch = line.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s+(.*)/);
+    
+    // Detecta benefício: linha com NB + "Benefício" + espécie
+    const benefitLineMatch = line.match(/(\d{9,11})\s+Benefício\s+(\d+)\s*-\s*(.+)/i);
+    
+    // Detecta RECOLHIMENTO/MEI/AGRUPAMENTO individual
+    const meiLineMatch = line.match(/^(RECOLHIMENTO|AGRUPAMENTO DE CONTRATANTES\/COOPERATIVAS)\s*/i);
+    
+    // Detecta linha de sequência + NIT do segurado (linha anterior ao cabeçalho)
+    // Formato: "1  160.09612.11-0  94.420.080/0001-88  NOME..."
+    // Ou apenas: "1  167.35735.45-6" (quando NIT e CNPJ estão em linhas separadas)
+    const seqNitMatch = line.match(/^(\d{1,3})\s+(\d{3}[\.\s]?\d{5}[\.\s]?\d{2}[-\s]?\d)\s*(.*)/);
+    
+    if (seqNitMatch) {
+      const seq = parseInt(seqNitMatch[1]);
+      const restAfterNit = seqNitMatch[3];
       
-      // Se encontrarmos uma nova sequência maior, fechamos o anterior e abrimos o novo
-      if (seq > currentSeq || (seq === 1 && currentSeq === 0)) {
-        if (currentVinculo) {
-          result.vinculos.push(currentVinculo as CnisVinculo);
-        }
-        currentSeq = seq;
-
-        let tipo: CnisVinculo['tipo'] = 'Empregado';
-        let empresa = '';
-        let inicio = '';
-        let fim: string | undefined;
-        let cnpj: string | undefined;
-        let nb: string | undefined;
-        let especie: number | undefined;
-        let situacao: string | undefined;
-
-        if (benefitMatch) {
-          tipo = 'Benefício';
-          especie = parseInt(benefitMatch[2]);
-          empresa = `Benefício ${especie}`;
-          nb = benefitMatch[2];
-          
-          const datesMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s*(?:a|à)\s*(\d{2}\/\d{2}\/\d{4})/);
-          if (datesMatch) {
-            inicio = formatDateToIso(datesMatch[1]);
-            fim = formatDateToIso(datesMatch[2]);
-          }
-          if (line.includes('CESSADO')) situacao = 'CESSADO';
-        } else if (meiMatch) {
-          tipo = 'MEI';
-          empresa = meiMatch[2].toUpperCase();
-          const datesMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s*(?:a|à)\s*(\d{2}\/\d{2}\/\d{4})/);
-          if (datesMatch) {
-            inicio = formatDateToIso(datesMatch[1]);
-            fim = formatDateToIso(datesMatch[2]);
-          }
-        } else {
-          const restOfLine = linkHeaderMatch![3];
-          
-          // O CNPJ geralmente vem logo após o NIT
-          const cnpjMatch = restOfLine.match(/^(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s+(.+)/);
-          let companyPart = restOfLine;
-          if (cnpjMatch) {
-            cnpj = cnpjMatch[1];
-            companyPart = cnpjMatch[2];
-          }
-          
-          // Extração da empresa e datas no restante da linha
-          // Procure por datas no formato DD/MM/AAAA
-          const datesInLine = companyPart.match(/(\d{2}\/\d{2}\/\d{4})/g);
-          if (datesInLine && datesInLine.length >= 1) {
-            inicio = formatDateToIso(datesInLine[0]);
-            if (datesInLine.length >= 2) {
-              fim = formatDateToIso(datesInLine[1]);
-            }
-            
-            // A empresa está antes da primeira data
-            const firstDateIndex = companyPart.indexOf(datesInLine[0]);
-            empresa = companyPart.substring(0, firstDateIndex).trim();
-          } else {
-            // Se não houver datas, o resto é a empresa
-            empresa = companyPart.trim();
-          }
-        }
-
-        currentVinculo = {
-          id: Math.random().toString(36).substr(2, 9),
-          seq: currentSeq,
-          empresa: empresa || 'Empresa não identificada',
-          cnpj,
-          nb,
-          especie,
-          inicio,
-          fim,
-          tipo,
-          situacao,
-          salarios: [],
-          indicadores: []
-        };
-        continue;
+      // Salva bloco anterior
+      if (currentBlock) {
+        blocks.push(currentBlock);
       }
+      seqCounter = seq;
+      
+      // Verifica se o CNPJ já está na mesma linha
+      const inlineCnpj = restAfterNit.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s*(.*)/);
+      const inlineBenefit = restAfterNit.match(/(\d{9,11})\s+Benefício\s+(\d+)/i);
+      const inlineMei = restAfterNit.match(/RECOLHIMENTO|AGRUPAMENTO/i);
+      
+      if (inlineBenefit) {
+        currentBlock = { seq, lines: [line], tipo: 'beneficio', headerLine: line };
+      } else if (inlineMei) {
+        currentBlock = { seq, lines: [line], tipo: 'mei', headerLine: line };
+      } else if (inlineCnpj) {
+        currentBlock = { seq, lines: [line], tipo: 'empregador', headerLine: line };
+      } else {
+        // CNPJ virá na próxima linha — abre bloco com tipo provisório
+        currentBlock = { seq, lines: [line], tipo: 'empregador', headerLine: line };
+      }
+      continue;
     }
+    
+    // Se a linha tem CNPJ e não temos seq ainda detectado na linha anterior,
+    // pode ser que a linha de seq e NIT não foi detectada (texto sem formatação)
+    if (cnpjLineMatch && currentBlock && currentBlock.lines.length <= 2) {
+      // Atualiza o headerLine com o CNPJ
+      currentBlock.headerLine = line;
+      currentBlock.lines.push(line);
+      continue;
+    }
+    
+    // Detecta benefício quando está em linha separada do seq
+    if (benefitLineMatch && currentBlock && currentBlock.lines.length <= 3) {
+      currentBlock.tipo = 'beneficio';
+      currentBlock.headerLine = line;
+      currentBlock.lines.push(line);
+      continue;
+    }
+    
+    if (meiLineMatch && currentBlock && currentBlock.lines.length <= 3) {
+      currentBlock.tipo = 'mei';
+      currentBlock.headerLine = line;
+      currentBlock.lines.push(line);
+      continue;
+    }
+    
+    // Linha de dados — adiciona ao bloco atual
+    if (currentBlock) {
+      currentBlock.lines.push(line);
+    }
+  }
+  
+  if (currentBlock) {
+    blocks.push(currentBlock);
+  }
 
-    // 4. Processamento de Remunerações e Indicadores para o Vínculo Ativo
-    if (currentVinculo) {
-      // Indicadores do vínculo
-      if (line.startsWith('Indicadores:')) {
-        const indicators = line.replace('Indicadores:', '').trim().split(/\s+/);
-        currentVinculo.indicadores = [...new Set([...(currentVinculo.indicadores || []), ...indicators])];
-      }
-
-      // Remunerações: MM/AAAA + valor
-      // Formato padrão: 10/2003 33,00
-      const stdMatches = line.matchAll(/(\d{2}\/\d{4})\s+([\d\.\,]+)/g);
-      for (const m of stdMatches) {
-        const competencia = formatCompetenciaToIso(m[1]);
-        const valor = parseCurrency(m[2]);
-        if (competencia && valor > 0) {
-          addOrUpdateSalario(currentVinculo, { competencia, valor });
-        }
-      }
-
-      // Formato MEI: 09/2024 14/11/2024 70,60 1.412,00 IREC-MEI
-      const meiRowMatch = line.match(/^(\d{2}\/\d{4})\s+\d{2}\/\d{2}\/\d{4}\s+[\d\.\,]+\s+([\d\.\,]+)(.*)/);
-      if (meiRowMatch) {
-        const competencia = formatCompetenciaToIso(meiRowMatch[1]);
-        const valor = parseCurrency(meiRowMatch[2]);
-        const indicadores = meiRowMatch[3].trim().split(/[\s,]+/).filter(x => x.length > 0);
-        addOrUpdateSalario(currentVinculo, { competencia, valor, indicadores });
-      }
+  // 4. Processa cada bloco para extrair o vínculo
+  for (const block of blocks) {
+    const vinculo = processBlock(block);
+    if (vinculo) {
+      result.vinculos.push(vinculo);
     }
   }
 
-  if (currentVinculo) {
-    result.vinculos.push(currentVinculo as CnisVinculo);
-  }
+  // Ordena por seq
+  result.vinculos.sort((a, b) => (a.seq || 0) - (b.seq || 0));
 
-  // Ordenação final
-  result.vinculos = result.vinculos.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-
-  // 5. VALIDAÇÃO OBRIGATÓRIA
+  // Log de validação
   console.log("--- VALIDAÇÃO PÓS-PARSE ---");
   console.log(`Titular: ${result.nome}`);
   console.log(`Total de vínculos: ${result.vinculos.length}`);
-  console.log("Por vínculo:");
   result.vinculos.forEach(v => {
-    const dataFim = v.fim ? formatDateFromIso(v.fim) : 'Ativo';
     const dataInicio = v.inicio ? formatDateFromIso(v.inicio) : '?';
-    console.log(`  Seq.${v.seq} - ${v.empresa.padEnd(30)} - ${dataInicio} a ${dataFim} - ${v.salarios?.length || 0} competências`);
+    const dataFim = v.fim ? formatDateFromIso(v.fim) : 'Ativo';
+    console.log(`  Seq.${v.seq} - ${(v.empresa || '').padEnd(35)} - ${dataInicio} → ${dataFim} - ${v.salarios?.length || 0} comp.`);
   });
   console.log("---------------------------");
 
   return result;
 }
 
-function formatDateFromIso(isoDate: string): string {
-  if (!isoDate) return '';
-  const parts = isoDate.split('-');
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+function processBlock(block: { 
+  seq: number, 
+  lines: string[], 
+  tipo: string, 
+  headerLine: string 
+}): CnisVinculo | null {
+  
+  const id = Math.random().toString(36).substr(2, 9);
+  let empresa = '';
+  let cnpj: string | undefined;
+  let nb: string | undefined;
+  let especie: number | undefined;
+  let inicio = '';
+  let fim: string | undefined;
+  let situacao: string | undefined;
+  let tipo: CnisVinculo['tipo'] = 'Empregado';
+  const salarios: CnisSalario[] = [];
+  const indicadores: string[] = [];
+
+  // Extrai informações do cabeçalho
+  for (const line of block.lines.slice(0, 6)) { // cabeçalho está nas primeiras linhas
+    
+    // CNPJ + Nome da empresa
+    const cnpjMatch = line.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\s+(.*)/);
+    if (cnpjMatch && !cnpj) {
+      cnpj = cnpjMatch[1];
+      const rest = cnpjMatch[2];
+      // Remove tipo de vínculo e outros campos após o nome
+      empresa = rest
+        .replace(/Empregad[oa]?\s*(Pú|Pri)?.*$/i, '')
+        .replace(/Contribuinte.*$/i, '')
+        .replace(/\d{3}\.\d{5}\.\d{2}-\d.*$/, '') // remove NIT
+        .trim();
+    }
+    
+    // Datas de início e fim
+    const datesMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+    if (datesMatch && !inicio) {
+      inicio = formatDateToIso(datesMatch[1]);
+      fim = formatDateToIso(datesMatch[2]);
+    } else {
+      const singleDate = line.match(/(?:Data Início|inicio)[:\s]+(\d{2}\/\d{2}\/\d{4})/i);
+      if (singleDate && !inicio) inicio = formatDateToIso(singleDate[1]);
+    }
+    
+    // Benefício
+    const benefitMatch = line.match(/Benefício\s+(\d+)\s*-\s*(.+?)(?:\s+\d{2}\/\d{2}\/\d{4}|$)/i);
+    if (benefitMatch) {
+      tipo = 'Benefício';
+      especie = parseInt(benefitMatch[1]);
+      empresa = `Benefício ${especie} - ${benefitMatch[2].trim()}`;
+      nb = String(especie);
+    }
+    
+    // Situação CESSADO
+    if (line.includes('CESSADO') || line.includes('2 - CESSADO')) {
+      situacao = 'CESSADO';
+    }
+    
+    // MEI / Recolhimento
+    if (block.tipo === 'mei' || line.match(/RECOLHIMENTO|MEI/i)) {
+      tipo = 'MEI';
+      if (!empresa) empresa = 'RECOLHIMENTO (MEI)';
+    }
+    
+    // Agrupamento
+    if (line.match(/AGRUPAMENTO DE CONTRATANTES/i)) {
+      tipo = 'Autônomo';
+      empresa = 'AGRUPAMENTO DE CONTRATANTES/COOPERATIVAS';
+    }
+    
+    // Indicadores do vínculo
+    if (line.startsWith('Indicadores:')) {
+      const inds = line.replace('Indicadores:', '').trim().split(/[\s,]+/);
+      indicadores.push(...inds.filter(x => x.length > 0));
+    }
   }
-  return isoDate;
+
+  // Extrai remunerações/contribuições de TODAS as linhas do bloco
+  for (const line of block.lines) {
+    // Formato MEI: 09/2024  14/11/2024  70,60  1.412,00  IREC-MEI
+    const meiRowMatch = line.match(/^(\d{2}\/\d{4})\s+\d{2}\/\d{2}\/\d{4}\s+([\d\.\,]+)\s+([\d\.\,]+)(.*)/);
+    if (meiRowMatch) {
+      const competencia = formatCompetenciaToIso(meiRowMatch[1]);
+      const valor = parseCurrency(meiRowMatch[3]); // salário de contribuição (4ª coluna)
+      const inds = meiRowMatch[4].trim().split(/[\s,]+/).filter(x => x.length > 2);
+      if (competencia && valor > 0) {
+        addOrUpdateSalario({ salarios }, { competencia, valor, indicadores: inds });
+      }
+      continue;
+    }
+    
+    // Formato padrão: MM/AAAA  valor  [indicador]
+    const stdMatches = Array.from(line.matchAll(/(\d{2}\/\d{4})\s+([\d\.\,]+)(?:\s+([A-Z][A-Z\-]+))?/g));
+    for (const m of stdMatches) {
+      const competencia = formatCompetenciaToIso(m[1]);
+      const valor = parseCurrency(m[2]);
+      const ind = m[3] ? [m[3]] : undefined;
+      if (competencia && valor > 0) {
+        addOrUpdateSalario({ salarios }, { competencia, valor, indicadores: ind });
+      }
+    }
+  }
+
+  // Se não conseguimos empresa, tenta pegar da primeira linha não-número
+  if (!empresa) {
+    for (const line of block.lines) {
+      if (/^[A-ZÁÉÍÓÚÀÂÃÊÔÕÇ]/.test(line) && line.length > 5 && !line.match(/^\d/)) {
+        empresa = line.trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    id,
+    seq: block.seq,
+    empresa: empresa || 'Empresa não identificada',
+    cnpj,
+    nb,
+    especie,
+    inicio,
+    fim,
+    tipo,
+    situacao,
+    salarios,
+    indicadores: [...new Set(indicadores)]
+  };
 }
 
-function addOrUpdateSalario(vinculo: Partial<CnisVinculo>, novoSalario: CnisSalario) {
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function addOrUpdateSalario(
+  vinculo: { salarios?: CnisSalario[] }, 
+  novoSalario: CnisSalario
+) {
   if (!vinculo.salarios) vinculo.salarios = [];
-  
   const existing = vinculo.salarios.find(s => s.competencia === novoSalario.competencia);
   if (existing) {
-    // If IREM-ACD is present, we should sum. Otherwise, use the new value if it's higher
     if (novoSalario.indicadores?.includes('IREM-ACD')) {
       existing.valor += novoSalario.valor;
     } else {
       existing.valor = Math.max(existing.valor, novoSalario.valor);
     }
     if (novoSalario.indicadores) {
-      existing.indicadores = [...new Set([...(existing.indicadores || []), ...novoSalario.indicadores])];
+      existing.indicadores = [
+        ...new Set([...(existing.indicadores || []), ...novoSalario.indicadores])
+      ];
     }
   } else {
-    vinculo.salarios.push(novoSalario);
+    vinculo.salarios.push({ ...novoSalario });
   }
 }
 
 function formatDateToIso(dateStr: string): string {
   if (!dateStr) return '';
   const parts = dateStr.split('/');
-  if (parts.length === 3) {
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
-  }
+  if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
   return '';
+}
+
+function formatDateFromIso(isoDate: string): string {
+  if (!isoDate) return '';
+  const parts = isoDate.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return isoDate;
 }
 
 function formatCompetenciaToIso(compStr: string): string {
   if (!compStr) return '';
   const parts = compStr.split('/');
-  if (parts.length === 2) {
-    return `${parts[1]}-${parts[0]}`;
-  }
+  if (parts.length === 2) return `${parts[1]}-${parts[0]}`;
   return '';
 }
 
 function parseCurrency(valStr: string): number {
   if (!valStr) return 0;
-  // Remove dots (thousands) and replace comma with dot (decimal)
-  let clean = valStr.replace(/\./g, '').replace(',', '.').replace(/[^\d\.]/g, '');
-  return parseFloat(clean) || 0;
+  return parseFloat(valStr.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '')) || 0;
 }
