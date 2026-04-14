@@ -1,7 +1,11 @@
-import { getDocument, GlobalWorkerOptions, version } from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-// Use a stable version (3.11.174) for the worker from CDN to avoid issues with local worker file resolution or ESM dynamic imports
-GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+// Import the worker using Vite's ?url suffix to get a correct URL for the worker file
+// This is the recommended way for Vite projects to handle workers from npm packages
+// @ts-ignore - Vite specific import
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export async function extractTextFromPdf(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();

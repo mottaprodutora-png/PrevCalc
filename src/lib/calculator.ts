@@ -41,51 +41,30 @@ export function calcularPrevidencia(
     const inicio = parseISO(v.inicio);
     const fim = v.fim ? parseISO(v.fim) : hoje;
     
-    // Períodos de benefício por incapacidade (espécie 31) contam como tempo de contribuição
-    const isEspecie31 = v.tipo === 'Benefício' && v.especie === 31;
-    const shouldCount = v.tipo !== 'Benefício' || isEspecie31;
-
-    if (shouldCount) {
-      // Add days to the set (Set handles concomitant periods automatically)
-      let current = inicio;
-      while (isBefore(current, fim) || current.getTime() === fim.getTime()) {
-        const comp = format(current, 'yyyy-MM');
-        
-        // PDT-NASC-FIL-INV -> Idade do filiado menor que permitida — desconsiderar essas competências
-        const hasInvalidIndicator = (v.salarios?.some(s => 
-          s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
-        )) || v.indicadores?.includes('PDT-NASC-FIL-INV');
-
-        if (!hasInvalidIndicator) {
-          diasContribuidos.add(format(current, 'yyyy-MM-dd'));
-        }
-        current = addDays(current, 1);
-      }
-
-      // Add months to carencia
-      const interval = eachMonthOfInterval({ start: startOfMonth(inicio), end: endOfMonth(fim) });
-      interval.forEach(m => {
-        const comp = format(m, 'yyyy-MM');
-        const hasInvalidIndicator = v.salarios?.some(s => 
-          s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
-        );
-        if (!hasInvalidIndicator) {
-          mesesCarencia.add(comp);
-        }
-      });
+    // Add days to the set
+    let current = inicio;
+    while (isBefore(current, fim) || current.getTime() === fim.getTime()) {
+      diasContribuidos.add(format(current, 'yyyy-MM-dd'));
+      current = addDays(current, 1);
     }
+
+    // Add months to carencia
+    const interval = eachMonthOfInterval({ start: startOfMonth(inicio), end: endOfMonth(fim) });
+    interval.forEach(m => {
+      const comp = format(m, 'yyyy-MM');
+      mesesCarencia.add(comp);
+    });
 
     // Collect salaries
     v.salarios?.forEach(s => {
-      // PDT-NASC-FIL-INV -> desconsiderar
-      if (s.valor > 0 && !s.indicadores?.includes('PDT-NASC-FIL-INV')) {
+      if (s.valor > 0) {
         salariosContribuicao.push(s);
       }
     });
 
     // Add to timeline
     timeline.push({
-      tipo: v.especial ? 'Especial' : v.tipo === 'Rural' ? 'Rural' : v.tipo === 'Benefício' ? 'Invalido' : 'Trabalho',
+      tipo: v.especial ? 'Especial' : v.tipo === 'Rural' ? 'Rural' : 'Trabalho',
       descricao: v.empresa,
       periodo: `${format(inicio, 'dd/MM/yyyy')} - ${v.fim ? format(fim, 'dd/MM/yyyy') : 'Atual'}`,
       inicio: v.inicio,
@@ -95,48 +74,9 @@ export function calcularPrevidencia(
   });
 
   const totalDias = diasContribuidos.size;
-  
-  // 3. Cálculo de Tempo Especial e Conversão (Fator 1.4/1.2 até 13/11/2019)
-  const diasEspeciais = new Set<string>();
-  const diasConvertidos = new Set<string>(diasContribuidos);
-  
-  vinculos.forEach(v => {
-    if (v.especial && v.inicio) {
-      const inicio = parseISO(v.inicio);
-      const fim = v.fim ? parseISO(v.fim) : hoje;
-      let current = inicio;
-      while (isBefore(current, fim) || current.getTime() === fim.getTime()) {
-        const dateStr = format(current, 'yyyy-MM-dd');
-        diasEspeciais.add(dateStr);
-        
-        // Conversão permitida apenas para períodos anteriores à reforma
-        if (isBefore(current, dataReforma)) {
-          // Adiciona dias fictícios para simular a conversão (0.4 para M, 0.2 para F)
-          // Como estamos usando um Set de dias, a conversão precisa ser tratada no total de dias
-        }
-        current = addDays(current, 1);
-      }
-    }
-  });
-
-  // Ajuste do total de dias com conversão (apenas períodos pré-reforma)
-  let totalDiasComConversao = totalDias;
-  vinculos.forEach(v => {
-    if (v.especial && v.inicio) {
-      const inicio = parseISO(v.inicio);
-      const fim = v.fim ? parseISO(v.fim) : hoje;
-      const fimConversao = isBefore(fim, dataReforma) ? fim : dataReforma;
-      if (isAfter(fimConversao, inicio)) {
-        const diasNoPeriodo = differenceInDays(fimConversao, inicio);
-        const fator = sexo === 'M' ? 0.4 : 0.2;
-        totalDiasComConversao += Math.floor(diasNoPeriodo * fator);
-      }
-    }
-  });
-
-  const anosTC = Math.floor(totalDiasComConversao / 365.25);
-  const mesesTC = Math.floor((totalDiasComConversao % 365.25) / 30.4375);
-  const diasTC = Math.floor((totalDiasComConversao % 365.25) % 30.4375);
+  const anosTC = Math.floor(totalDias / 365.25);
+  const mesesTC = Math.floor((totalDias % 365.25) / 30.4375);
+  const diasTC = Math.floor((totalDias % 365.25) % 30.4375);
 
   // 3. Calculate Average Salary (Média)
   const salariosPos94 = salariosContribuicao
@@ -174,17 +114,12 @@ export function calcularPrevidencia(
     {
       nome: 'Transição - Pontos',
       status: 'Não Apto',
-      descricao: `Requisito: Soma de idade + tempo de contribuição atingindo a pontuação mínima (2025: 102M/92F).`
-    },
-    {
-      nome: 'Aposentadoria Especial',
-      status: 'Não Apto',
-      descricao: `Requisito: 86 pontos (Idade + Tempo Especial) ou 60 anos de idade + 25 anos de atividade especial.`
+      descricao: `Requisito: Soma de idade + tempo de contribuição atingindo a pontuação mínima (2024: 101M/91F).`
     },
     {
       nome: 'Regra Permanente (Idade)',
       status: 'Não Apto',
-      descricao: `Requisito: Idade mínima (65M/62F) + tempo de contribuição (15 anos para quem já estava no sistema).`
+      descricao: `Requisito: Idade mínima (65M/62F) + tempo de contribuição (20M/15F).`
     }
   ];
 
@@ -201,12 +136,12 @@ export function calcularPrevidencia(
       } else {
         const pedagioDias = diasFaltantesEm2019 * 0.5;
         const totalDiasNecessarios = (metaTempo * 365.25) + pedagioDias;
-        if (totalDiasComConversao >= totalDiasNecessarios) {
+        if (totalDias >= totalDiasNecessarios) {
           r.status = 'Apto';
           r.dataAptidao = format(hoje, 'dd/MM/yyyy');
         } else {
           r.status = 'Não Apto';
-          r.tempoFaltanteDias = totalDiasNecessarios - totalDiasComConversao;
+          r.tempoFaltanteDias = totalDiasNecessarios - totalDias;
         }
       }
     }
@@ -216,20 +151,20 @@ export function calcularPrevidencia(
       const pedagioDias = diasFaltantesEm2019;
       const totalDiasNecessarios = (metaTempo * 365.25) + pedagioDias;
       
-      if (idadeAnos >= metaIdade && totalDiasComConversao >= totalDiasNecessarios) {
+      if (idadeAnos >= metaIdade && totalDias >= totalDiasNecessarios) {
         r.status = 'Apto';
         r.dataAptidao = format(hoje, 'dd/MM/yyyy');
       } else {
         r.status = 'Não Apto';
         const faltanteIdade = Math.max(0, (metaIdade - idadeAnos) * 365.25);
-        const faltanteTempo = Math.max(0, totalDiasNecessarios - totalDiasComConversao);
+        const faltanteTempo = Math.max(0, totalDiasNecessarios - totalDias);
         r.tempoFaltanteDias = Math.max(faltanteIdade, faltanteTempo);
       }
     }
 
     if (r.nome.includes('Pontos')) {
       const pontos = idadeAnos + anosTC;
-      const meta = sexo === 'M' ? 102 : 92;
+      const meta = sexo === 'M' ? 101 : 91;
       if (pontos >= meta && anosTC >= metaTempo) {
         r.status = 'Apto';
         r.dataAptidao = format(hoje, 'dd/MM/yyyy');
@@ -239,25 +174,9 @@ export function calcularPrevidencia(
       }
     }
 
-    if (r.nome.includes('Especial')) {
-      const anosEspecial = diasEspeciais.size / 365.25;
-      const pontosEspecial = idadeAnos + anosTC;
-      const metaPontos = 86;
-      const metaIdade = 60;
-      
-      if ((pontosEspecial >= metaPontos || idadeAnos >= metaIdade) && anosEspecial >= 25) {
-        r.status = 'Apto';
-        r.dataAptidao = format(hoje, 'dd/MM/yyyy');
-      } else {
-        r.status = 'Não Apto';
-        const faltanteTempo = Math.max(0, (25 - anosEspecial) * 365.25);
-        r.tempoFaltanteDias = faltanteTempo || 365;
-      }
-    }
-
     if (r.nome.includes('Permanente')) {
       const metaIdade = sexo === 'M' ? 65 : 62;
-      const metaTempoMin = 15; // Regra de transição por idade exige 15 anos
+      const metaTempoMin = sexo === 'M' ? 20 : 15;
       if (idadeAnos >= metaIdade && anosTC >= metaTempoMin) {
         r.status = 'Apto';
         r.dataAptidao = format(hoje, 'dd/MM/yyyy');
@@ -271,14 +190,7 @@ export function calcularPrevidencia(
   });
 
   const melhorRegra = regras.find(r => r.status === 'Apto') || regras[regras.length - 1];
-  
-  // Cálculo do Coeficiente específico por regra
-  let coeficiente = calcularCoeficiente(anosTC, sexo);
-  if (melhorRegra.nome.includes('Pedágio 100%')) {
-    coeficiente = 1.0; // 100% da média
-  } else if (melhorRegra.nome.includes('Pedágio 50%')) {
-    coeficiente = 0.92; // Estimativa média do Fator Previdenciário
-  }
+  const coeficiente = calcularCoeficiente(anosTC, sexo);
 
   return {
     resumo: {
@@ -287,7 +199,7 @@ export function calcularPrevidencia(
       carenciaMeses: mesesCarencia.size,
       statusAtual: melhorRegra.status,
       tempoFaltanteFormatado: melhorRegra.tempoFaltanteDias ? `${Math.ceil(melhorRegra.tempoFaltanteDias / 365.25)} anos` : 'Requisito atingido',
-      previsaoAposentadoria: melhorRegra.dataAptidao || format(addDays(hoje, melhorRegra.tempoFaltanteDias || 0), 'dd/MM/yyyy'),
+      previsaoAposentadoria: melhorRegra.dataAptidao || 'Calculando...',
       percentualConcluido: Math.min(100, (anosTC / metaTempo) * 100),
       melhorRegraNome: melhorRegra.nome
     },
@@ -329,21 +241,9 @@ function calculateDaysUntil(vinculos: CnisVinculo[], limitDate: Date): number {
     const end = v.fim ? parseISO(v.fim) : new Date();
     const actualEnd = isBefore(end, limitDate) ? end : limitDate;
     
-    const isEspecie31 = v.tipo === 'Benefício' && v.especie === 31;
-    const shouldCount = v.tipo !== 'Benefício' || isEspecie31;
-
-    if (shouldCount) {
-      while (isBefore(current, actualEnd) || current.getTime() === actualEnd.getTime()) {
-        const comp = format(current, 'yyyy-MM');
-        const hasInvalidIndicator = (v.salarios?.some(s => 
-          s.competencia === comp && s.indicadores?.includes('PDT-NASC-FIL-INV')
-        )) || v.indicadores?.includes('PDT-NASC-FIL-INV');
-
-        if (!hasInvalidIndicator) {
-          days.add(format(current, 'yyyy-MM-dd'));
-        }
-        current = addDays(current, 1);
-      }
+    while (isBefore(current, actualEnd) || current.getTime() === actualEnd.getTime()) {
+      days.add(format(current, 'yyyy-MM-dd'));
+      current = addDays(current, 1);
     }
   });
   return days.size;
@@ -359,37 +259,20 @@ function calcularCoeficiente(anos: number, sexo: 'M' | 'F'): number {
 function verificarInconsistencias(vinculos: CnisVinculo[]): Inconsistencia[] {
   const incs: Inconsistencia[] = [];
   vinculos.forEach(v => {
-    if (!v.fim && isBefore(parseISO(v.inicio), addDays(new Date(), -90)) && v.tipo !== 'Benefício') {
+    if (!v.fim && isBefore(parseISO(v.inicio), addDays(new Date(), -90))) {
       incs.push({
         tipo: 'Vínculo Incompleto',
         descricao: `Vínculo na empresa ${v.empresa} sem data de fim.`,
         periodo: `${v.inicio} - Aberto`
       });
     }
-    if (v.salarios && v.salarios.length === 0 && v.tipo !== 'Rural' && v.tipo !== 'Benefício') {
+    if (v.salarios && v.salarios.length === 0 && v.tipo !== 'Rural') {
       incs.push({
         tipo: 'Sem Remuneração',
         descricao: `Vínculo na empresa ${v.empresa} sem salários registrados.`,
         periodo: v.inicio
       });
     }
-
-    v.salarios?.forEach(s => {
-      if (s.indicadores?.includes('PSC-MEN-SM-EC103')) {
-        incs.push({
-          tipo: 'Abaixo do Mínimo',
-          descricao: `Competência ${s.competencia} na empresa ${v.empresa} está abaixo do mínimo (PSC-MEN-SM-EC103).`,
-          periodo: s.competencia
-        });
-      }
-      if (s.indicadores?.includes('IREC-INDPEND')) {
-        incs.push({
-          tipo: 'Vínculo Incompleto',
-          descricao: `Competência ${s.competencia} na empresa ${v.empresa} possui pendência no recolhimento (IREC-INDPEND).`,
-          periodo: s.competencia
-        });
-      }
-    });
   });
   return incs;
 }

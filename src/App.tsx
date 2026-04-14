@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { addDays, parseISO, isValid, eachMonthOfInterval, format } from 'date-fns';
+import { addDays, parseISO, isValid } from 'date-fns';
 import { safeFormat } from './lib/dateUtils';
 import { 
   Calculator, 
@@ -44,7 +44,7 @@ export default function App() {
   const [nome, setNome] = useState('');
   const [nascimento, setNascimento] = useState('1970-01-01');
   const [genero, setGenero] = useState<'M' | 'F'>('M');
-  const [activeTab, setActiveTab] = useState<'manual' | 'import' | 'saved'>('import');
+  const [activeTab, setActiveTab] = useState<'manual' | 'import' | 'saved'>('manual');
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [isFileLoading, setIsFileLoading] = useState(false);
@@ -53,8 +53,6 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [savedCalculations, setSavedCalculations] = useState<any[]>([]);
-  const [reviewData, setReviewData] = useState<{ nome?: string, nascimento?: string, vinculos: CnisVinculo[] } | null>(null);
-  const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -162,37 +160,7 @@ export default function App() {
   };
 
   const updateVinculo = (id: string, updates: Partial<CnisVinculo>) => {
-    setVinculos(prev => prev.map(v => {
-      if (v.id !== id) return v;
-      
-      const newVinculo = { ...v, ...updates };
-      
-      // Auto-generate salaries when period changes
-      if ((updates.inicio || updates.fim) && newVinculo.inicio && newVinculo.fim) {
-        try {
-          const start = parseISO(newVinculo.inicio);
-          const end = parseISO(newVinculo.fim);
-          
-          if (isValid(start) && isValid(end) && start <= end) {
-            const months = eachMonthOfInterval({ start, end });
-            
-            // Limit to a reasonable number of months to avoid performance issues (e.g., 50 years = 600 months)
-            if (months.length <= 600) {
-              const newSalarios = months.map(m => {
-                const comp = format(m, 'yyyy-MM');
-                const existing = v.salarios.find(s => s.competencia === comp);
-                return existing || { competencia: comp, valor: 1412 };
-              });
-              newVinculo.salarios = newSalarios;
-            }
-          }
-        } catch (e) {
-          console.error("Erro ao gerar salários:", e);
-        }
-      }
-      
-      return newVinculo;
-    }));
+    setVinculos(vinculos.map(v => v.id === id ? { ...v, ...updates } : v));
   };
 
   const handleImport = async (textToProcess?: string) => {
@@ -209,12 +177,15 @@ export default function App() {
         // Filtra vínculos vazios ou inválidos
         const validVinculos = regexResult.vinculos.filter(v => v.inicio || v.salarios?.length > 0);
         if (validVinculos.length > 0) {
-          setReviewData({
-            nome: regexResult.nome,
-            nascimento: regexResult.dataNascimento,
-            vinculos: validVinculos
-          });
-          setShowReview(true);
+          setVinculos([...vinculos, ...validVinculos]);
+          if (regexResult.nome && !nome) {
+            setNome(regexResult.nome);
+          }
+          if (regexResult.dataNascimento && !nascimento) {
+            setNascimento(regexResult.dataNascimento);
+          }
+          setActiveTab('manual');
+          setImportText('');
           setIsImporting(false);
           return;
         }
@@ -224,37 +195,29 @@ export default function App() {
       console.log("Parser local não encontrou dados suficientes. Tentando IA...");
       const { nome: importedNome, dataNascimento: importedDataNascimento, vinculos: importedVinculos, error } = await parseCnisText(text);
       
-      if (error === 'API_KEY_MISSING') {
-        console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
-        if (regexResult.vinculos.length === 0) {
-          alert("Não foi possível extrair os dados automaticamente deste PDF. \n\nIsso pode acontecer se o arquivo estiver protegido ou em um formato não suportado. \n\nSugestão: Tente copiar o texto do PDF e colar na aba 'Importar Texto' ou preencha os dados manualmente.");
-        }
-        return;
+    if (error === 'API_KEY_MISSING') {
+      console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
+      if (regexResult.vinculos.length === 0) {
+        alert("Não foi possível extrair os dados automaticamente deste PDF. \n\nIsso pode acontecer se o arquivo estiver protegido ou em um formato não suportado. \n\nSugestão: Tente copiar o texto do PDF e colar na aba 'Importar Texto' ou preencha os dados manualmente.");
       }
+      return;
+    }
 
       if (error) {
-        let friendlyError = error;
-        try {
-          const parsedError = JSON.parse(error);
-          if (parsedError.error?.code === 503) {
-            friendlyError = "O serviço de Inteligência Artificial está temporariamente sobrecarregado (Erro 503). \n\nIsso acontece em horários de pico. Por favor, aguarde alguns segundos e tente novamente, ou use a importação manual.";
-          } else if (parsedError.error?.message) {
-            friendlyError = parsedError.error.message;
-          }
-        } catch (e) {
-          // Not a JSON error, use raw string
-        }
-        alert(`Erro na extração via IA: ${friendlyError}`);
+        alert(`Erro na extração via IA: ${error}. Tente copiar e colar o texto novamente.`);
         return;
       }
 
       if (importedVinculos.length > 0) {
-        setReviewData({
-          nome: importedNome,
-          nascimento: importedDataNascimento,
-          vinculos: importedVinculos
-        });
-        setShowReview(true);
+        setVinculos([...vinculos, ...importedVinculos]);
+        if (importedNome && !nome) {
+          setNome(importedNome);
+        }
+        if (importedDataNascimento && !nascimento) {
+          setNascimento(importedDataNascimento);
+        }
+        setActiveTab('manual');
+        setImportText('');
       } else {
         alert("Não foi possível extrair dados do texto fornecido. Verifique se o conteúdo é um extrato CNIS válido ou tente copiar o texto de forma mais clara.");
       }
@@ -306,7 +269,7 @@ export default function App() {
 
     setIsDownloading(true);
     const opt = {
-      margin: [15, 15] as [number, number],
+      margin: [10, 10] as [number, number],
       filename: `Relatorio_PrevCalc_${nome ? nome.replace(/\s+/g, '_') + '_' : ''}${activeReport === 'advogado' ? 'Tecnico' : 'Resumo'}_${safeFormat(new Date(), 'dd_MM_yyyy')}.pdf`,
       image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { 
@@ -314,248 +277,30 @@ export default function App() {
         useCORS: true, 
         letterRendering: true,
         logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: 1200, // Fixed width for better layout consistency
         // This helps html2canvas ignore oklch if it's in the stylesheet but not used on the element
         ignoreElements: (element: Element) => element.classList.contains('no-pdf'),
         onclone: (clonedDoc: Document) => {
-          // Remove all existing style and link tags to prevent html2canvas from parsing oklch/oklab
-          // We will inject a safe, hex-only stylesheet instead
-          const styleElements = Array.from(clonedDoc.querySelectorAll('style, link[rel="stylesheet"]'));
-          styleElements.forEach(el => el.remove());
-
-          // Inject a completely safe, hex-only stylesheet for the PDF
-          const safeStyle = clonedDoc.createElement('style');
-          safeStyle.textContent = `
-            /* Basic Reset */
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: sans-serif; background: white; color: #0f172a; width: 1200px; }
-            
-            /* Layout Utilities */
-            .flex { display: flex; }
-            .grid { display: grid; }
-            .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-            .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-            .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-            .gap-2 { gap: 0.5rem; }
-            .gap-3 { gap: 0.75rem; }
-            .gap-4 { gap: 1rem; }
-            .gap-6 { gap: 1.5rem; }
-            .gap-8 { gap: 2rem; }
-            .gap-12 { gap: 3rem; }
-            .gap-16 { gap: 4rem; }
-            .p-2 { padding: 0.5rem; }
-            .p-3 { padding: 0.75rem; }
-            .p-4 { padding: 1rem; }
-            .p-5 { padding: 1.25rem; }
-            .p-6 { padding: 1.5rem; }
-            .p-8 { padding: 2rem; }
-            .p-10 { padding: 2.5rem; }
-            .p-12 { padding: 3rem; }
-            .px-1\\.5 { padding-left: 0.375rem; padding-right: 0.375rem; }
-            .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
-            .px-2\\.5 { padding-left: 0.625rem; padding-right: 0.625rem; }
-            .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
-            .py-0\\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
-            .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
-            .py-1\\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
-            .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
-            .pb-4 { padding-bottom: 1rem; }
-            .pb-6 { padding-bottom: 1.5rem; }
-            .pb-12 { padding-bottom: 3rem; }
-            .pt-1 { padding-top: 0.25rem; }
-            .pt-8 { padding-top: 2rem; }
-            .pt-10 { padding-top: 2.5rem; }
-            .pt-20 { padding-top: 5rem; }
-            .pl-12 { padding-left: 3rem; }
-            .mb-0\\.5 { margin-bottom: 0.125rem; }
-            .mb-1 { margin-bottom: 0.25rem; }
-            .mb-2 { margin-bottom: 0.5rem; }
-            .mb-3 { margin-bottom: 0.75rem; }
-            .mb-4 { margin-bottom: 1rem; }
-            .mb-6 { margin-bottom: 1.5rem; }
-            .mb-8 { margin-bottom: 2rem; }
-            .mt-0\\.5 { margin-top: 0.125rem; }
-            .mt-1 { margin-top: 0.25rem; }
-            .mt-2 { margin-top: 0.5rem; }
-            .mt-4 { margin-top: 1rem; }
-            .mt-6 { margin-top: 1.5rem; }
-            .mt-8 { margin-top: 2rem; }
-            .mt-10 { margin-top: 2.5rem; }
-            .mr-2 { margin-right: 0.5rem; }
-            .w-1 { width: 0.25rem; }
-            .w-0\\.5 { width: 0.125rem; }
-            .w-1\\.5 { width: 0.375rem; }
-            .w-4 { width: 1rem; }
-            .w-8 { width: 2rem; }
-            .w-10 { width: 2.5rem; }
-            .w-12 { width: 3rem; }
-            .w-32 { width: 8rem; }
-            .w-full { width: 100%; }
-            .h-1 { height: 0.25rem; }
-            .h-0\\.5 { height: 0.125rem; }
-            .h-1\\.5 { height: 0.375rem; }
-            .h-3 { height: 0.75rem; }
-            .h-4 { height: 1rem; }
-            .h-8 { height: 2rem; }
-            .h-10 { height: 2.5rem; }
-            .h-full { height: 100%; }
-            .max-w-xs { max-width: 20rem; }
-            .max-w-2xl { max-width: 42rem; }
-            .max-w-4xl { max-width: 56rem; }
-            .mx-auto { margin-left: auto; margin-right: auto; }
-            .text-center { text-align: center; }
-            .text-right { text-align: right; }
-            .justify-between { justify-content: space-between; }
-            .justify-center { justify-content: center; }
-            .items-center { align-items: center; }
-            .items-start { align-items: flex-start; }
-            
-            /* Typography */
-            .text-[7px] { font-size: 7px; }
-            .text-[8px] { font-size: 8px; }
-            .text-[9px] { font-size: 9px; }
-            .text-[10px] { font-size: 10px; }
-            .text-[11px] { font-size: 11px; }
-            .text-[12px] { font-size: 12px; }
-            .text-xs { font-size: 0.75rem; }
-            .text-sm { font-size: 0.875rem; }
-            .text-base { font-size: 1rem; }
-            .text-lg { font-size: 1.125rem; }
-            .text-xl { font-size: 1.25rem; }
-            .text-2xl { font-size: 1.5rem; }
-            .text-3xl { font-size: 1.875rem; }
-            .text-4xl { font-size: 2.25rem; }
-            .text-5xl { font-size: 3rem; }
-            .font-bold { font-weight: 700; }
-            .font-medium { font-weight: 500; }
-            .font-semibold { font-weight: 600; }
-            .uppercase { text-transform: uppercase; }
-            .tracking-tight { letter-spacing: -0.025em; }
-            .tracking-widest { letter-spacing: 0.1em; }
-            .tracking-\\[0\\.4em\\] { letter-spacing: 0.4em; }
-            .tracking-\\[0\\.6em\\] { letter-spacing: 0.6em; }
-            .leading-tight { line-height: 1.25; }
-            .leading-relaxed { line-height: 1.625; }
-            .italic { font-style: italic; }
-            
-            /* Colors (Hex Only) */
-            .text-brand-text { color: #0f172a; }
-            .text-brand-primary { color: #2563eb; }
-            .text-brand-muted { color: #64748b; }
-            .text-white { color: #ffffff; }
-            .text-green-600 { color: #16a34a; }
-            .text-green-700 { color: #15803d; }
-            .text-amber-300 { color: #fcd34d; }
-            .text-amber-600 { color: #d97706; }
-            .text-amber-700 { color: #b45309; }
-            .text-red-300 { color: #fca5a5; }
-            .text-red-400 { color: #f87171; }
-            .text-red-600 { color: #dc2626; }
-            .text-slate-500 { color: #64748b; }
-            .text-slate-600 { color: #475569; }
-            .text-slate-700 { color: #334155; }
-            .text-slate-900 { color: #0f172a; }
-            
-            .bg-white { background-color: #ffffff; }
-            .bg-brand-primary { background-color: #2563eb; }
-            .bg-brand-text { background-color: #0f172a; }
-            .bg-brand-bg { background-color: #f8fafc; }
-            .bg-green-50 { background-color: #f0fdf4; }
-            .bg-green-100 { background-color: #dcfce7; }
-            .bg-amber-50 { background-color: #fffbeb; }
-            .bg-red-50 { background-color: #fef2f2; }
-            .bg-red-600 { background-color: #dc2626; }
-            .bg-slate-50 { background-color: #f8fafc; }
-            .bg-slate-100 { background-color: #f1f5f9; }
-            
-            .bg-brand-primary\\/10 { background-color: rgba(37, 99, 235, 0.1); }
-            .bg-brand-bg\\/30 { background-color: rgba(248, 250, 252, 0.3); }
-            .bg-brand-bg\\/50 { background-color: rgba(248, 250, 252, 0.5); }
-            .bg-white\\/10 { background-color: rgba(255, 255, 255, 0.1); }
-            .bg-white\\/50 { background-color: rgba(255, 255, 255, 0.5); }
-            .bg-red-50\\/50 { background-color: rgba(254, 242, 242, 0.5); }
-            
-            .border { border: 1px solid #e2e8f0; }
-            .border-2 { border-width: 2px; }
-            .border-brand-border { border-color: #e2e8f0; }
-            .border-brand-primary { border-color: #2563eb; }
-            .border-green-200 { border-color: #bbf7d0; }
-            .border-amber-200 { border-color: #fde68a; }
-            .border-red-100 { border-color: #fee2e2; }
-            .border-red-200 { border-color: #fecaca; }
-            .border-slate-200 { border-color: #e2e8f0; }
-            .border-b { border-bottom: 1px solid #e2e8f0; }
-            .border-b-2 { border-bottom: 2px solid #2563eb; }
-            .border-t { border-top: 1px solid #e2e8f0; }
-            .border-l { border-left: 1px solid #e2e8f0; }
-            .border-l-4 { border-left: 4px solid #e2e8f0; }
-            .border-l-brand-primary { border-left-color: #2563eb; }
-            
-            .border-brand-border\\/50 { border-color: rgba(226, 232, 240, 0.5); }
-            .border-white\\/10 { border-color: rgba(255, 255, 255, 0.1); }
-            
-            .rounded { border-radius: 0.25rem; }
-            .rounded-lg { border-radius: 0.5rem; }
-            .rounded-xl { border-radius: 0.75rem; }
-            .rounded-2xl { border-radius: 1rem; }
-            .rounded-3xl { border-radius: 1.5rem; }
-            .rounded-\\[2\\.5rem\\] { border-radius: 2.5rem; }
-            .rounded-full { border-radius: 9999px; }
-            
-            .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
-            .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
-            .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
-            
-            /* Specific Report Overrides */
-            #printable-report { padding: 40px; background: white; width: 100%; }
-            .overflow-hidden { overflow: hidden; }
-            .shrink-0 { flex-shrink: 0; }
-            .list-disc { list-style-type: disc; }
-            .pl-5 { padding-left: 1.25rem; }
-            .space-y-1 > * + * { margin-top: 0.25rem; }
-            .space-y-2 > * + * { margin-top: 0.5rem; }
-            .space-y-3 > * + * { margin-top: 0.75rem; }
-            .space-y-4 > * + * { margin-top: 1rem; }
-            .space-y-6 > * + * { margin-top: 1.5rem; }
-            .space-y-8 > * + * { margin-top: 2rem; }
-            .space-y-16 > * + * { margin-top: 4rem; }
-            
-            /* Page Break Logic */
-            section { page-break-inside: auto; break-inside: auto; margin-bottom: 40px; position: relative; display: block; }
-            .grid > div { page-break-inside: avoid; break-inside: avoid; }
-            tr { page-break-inside: avoid; break-inside: avoid; }
-            .rounded-3xl { page-break-inside: avoid; break-inside: avoid; margin-bottom: 20px; }
-            .rounded-\\[2\\.5rem\\] { page-break-inside: avoid; break-inside: avoid; }
-            
-            /* Ensure headers don't get separated from their content */
-            h3, h4 { page-break-after: avoid; break-after: avoid; }
-            
-            /* Force new page for major sections if they are likely to be cut */
-            #printable-report > section:nth-of-type(4) { page-break-before: always; }
-            #printable-report > section:nth-of-type(5) { page-break-before: always; }
-            #printable-report > section:nth-of-type(8) { page-break-before: always; }
-            #printable-report > section:nth-of-type(9) { page-break-before: always; }
-            
-            /* Fix for overlapping headers */
-            h3, h4, h5, h6 { position: relative; display: block; }
-            .flex { display: flex; align-items: center; }
-            
-            /* Ensure background colors render correctly */
-            .bg-brand-text { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .bg-brand-primary { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .bg-brand-bg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            
-            /* Specific fix for the header overlap */
-            .text-center.border-b-2 { margin-bottom: 40px; }
-            .mt-10 { margin-top: 40px; }
-            
-            /* Fix for inline-block black bars */
-            .inline-block { display: inline-block; width: auto; }
-          `;
-          clonedDoc.head.appendChild(safeStyle);
+          // Remove all style tags that might contain oklch/oklab
+          const styles = clonedDoc.getElementsByTagName('style');
+          for (let i = 0; i < styles.length; i++) {
+            const style = styles[i];
+            if (style.textContent && (style.textContent.includes('oklch') || style.textContent.includes('oklab'))) {
+              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, '#000000');
+              style.textContent = style.textContent.replace(/oklab\([^)]+\)/g, '#000000');
+            }
+          }
+          
+          // Also check inline styles of all elements
+          const allElements = clonedDoc.getElementsByTagName('*');
+          for (let i = 0; i < allElements.length; i++) {
+            const el = allElements[i] as HTMLElement;
+            if (el.style) {
+              const styleStr = el.getAttribute('style');
+              if (styleStr && (styleStr.includes('oklch') || styleStr.includes('oklab'))) {
+                el.setAttribute('style', styleStr.replace(/oklch\([^)]+\)/g, '#000000').replace(/oklab\([^)]+\)/g, '#000000'));
+              }
+            }
+          }
         }
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
@@ -571,138 +316,8 @@ export default function App() {
     }
   };
 
-  const confirmImport = () => {
-    if (!reviewData) return;
-    
-    setVinculos([...vinculos, ...reviewData.vinculos]);
-    if (reviewData.nome) setNome(reviewData.nome);
-    if (reviewData.nascimento) setNascimento(reviewData.nascimento);
-    
-    setShowReview(false);
-    setReviewData(null);
-    setActiveTab('manual');
-    setImportText('');
-  };
-
   return (
     <div className="min-h-screen bg-brand-bg text-brand-text font-sans selection:bg-brand-primary selection:text-white">
-      {/* Review Modal */}
-      <AnimatePresence>
-        {showReview && reviewData && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-200"
-            >
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                    <ShieldCheck className="w-6 h-6 text-brand-primary" />
-                    Validação Pós-Parse
-                  </h2>
-                  <p className="text-sm text-slate-500 mt-1">Confirme os dados extraídos antes de calcular</p>
-                </div>
-                <button 
-                  onClick={() => setShowReview(false)}
-                  className="p-2 hover:bg-slate-200 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
-                <div className="bg-brand-primary/5 rounded-2xl p-4 border border-brand-primary/10">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center">
-                      <User className="w-5 h-5 text-brand-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-widest text-brand-primary/60">Titular</p>
-                      <p className="text-lg font-bold text-slate-900">{reviewData.nome || 'Não identificado'}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-6 mt-3 pl-13">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nascimento</p>
-                      <p className="text-sm font-medium text-slate-700">{reviewData.nascimento ? safeFormat(reviewData.nascimento, 'dd/MM/yyyy') : '---'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Vínculos</p>
-                      <p className="text-sm font-medium text-slate-700">{reviewData.vinculos.length} encontrados</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1">Resumo dos Vínculos</h3>
-                  <div className="space-y-2">
-                    {reviewData.vinculos.map((v, idx) => (
-                      <div key={v.id} className="group p-3 rounded-xl border border-slate-100 bg-slate-50/30 hover:border-brand-primary/30 hover:bg-white transition-all">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
-                            <span className="text-[10px] font-bold bg-slate-200 text-slate-600 w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5">
-                              {String(v.seq || idx + 1).padStart(2, '0')}
-                            </span>
-                            <div>
-                              <p className="text-sm font-bold text-slate-800 line-clamp-1">{v.empresa}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <p className="text-xs text-slate-500 font-medium">
-                                  {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '---'} → {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'}
-                                </p>
-                                <span className="w-1 h-1 rounded-full bg-slate-300" />
-                                <p className="text-xs text-slate-500 font-medium">
-                                  {v.salarios.length} comp.
-                                </p>
-                                {v.situacao && (
-                                  <>
-                                    <span className="w-1 h-1 rounded-full bg-slate-300" />
-                                    <span className="text-[10px] font-bold text-amber-600 uppercase">{v.situacao}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {v.indicadores && v.indicadores.length > 0 && (
-                            <div className="flex flex-wrap gap-1 justify-end max-w-[120px]">
-                              {v.indicadores.slice(0, 2).map(ind => (
-                                <span key={ind} className="text-[9px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                  <AlertTriangle className="w-2.5 h-2.5" />
-                                  {ind}
-                                </span>
-                              ))}
-                              {v.indicadores.length > 2 && (
-                                <span className="text-[9px] font-bold text-slate-400">+{v.indicadores.length - 2}</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-3">
-                <button
-                  onClick={() => setShowReview(false)}
-                  className="flex-1 px-6 py-3 rounded-2xl font-bold text-slate-600 hover:bg-slate-200 transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={confirmImport}
-                  className="flex-[2] px-6 py-3 rounded-2xl font-bold bg-brand-primary text-white shadow-lg shadow-brand-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 className="w-5 h-5" />
-                  Confirmar e Importar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b border-brand-border px-6 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-3">
@@ -722,7 +337,6 @@ export default function App() {
               type="text" 
               placeholder="Nome do Segurado"
               value={nome || ''}
-              onFocus={(e) => e.target.select()}
               onChange={(e) => setNome(e.target.value)}
               className="text-sm font-medium outline-none w-48 lg:w-64 bg-transparent"
             />
@@ -795,6 +409,17 @@ export default function App() {
         {/* Sidebar - Input Area */}
         <section className="lg:w-[400px] xl:w-[450px] border-r border-brand-border bg-white flex flex-col h-[calc(100vh-73px)] sticky top-[73px]">
           <div className="flex p-4 gap-2 border-b border-brand-border bg-brand-bg/50">
+            <button 
+              onClick={() => setActiveTab('manual')}
+              className={cn(
+                "flex-1 py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2",
+                activeTab === 'manual' 
+                  ? "bg-white text-brand-primary shadow-sm border border-brand-border" 
+                  : "text-brand-muted hover:bg-white/50"
+              )}
+            >
+              <Plus size={14} /> Entrada Manual
+            </button>
             <button 
               onClick={() => setActiveTab('import')}
               className={cn(
@@ -882,7 +507,6 @@ export default function App() {
                               <Briefcase size={18} />
                             </div>
                             <h4 className="font-bold text-sm text-brand-text truncate max-w-[200px]">
-                              {v.seq && <span className="text-brand-primary mr-1 text-[10px]">#{v.seq}</span>}
                               {v.empresa && !v.empresa.toLowerCase().includes('cadastro nacional') ? v.empresa : 'Vínculo Identificado'}
                             </h4>
                           </div>
@@ -900,7 +524,6 @@ export default function App() {
                             <input 
                               type="text" 
                               value={v.empresa || ''}
-                              onFocus={(e) => e.target.select()}
                               onChange={(e) => updateVinculo(v.id, { empresa: e.target.value })}
                               className="w-full font-bold text-sm text-brand-text bg-brand-bg border border-brand-border rounded-lg px-3 py-2 focus:border-brand-primary outline-none transition-all"
                               placeholder="Ex: Empresa ABC Ltda"
@@ -967,23 +590,13 @@ export default function App() {
                           </select>
                         </div>
 
-                        {v.indicadores && v.indicadores.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-4">
-                            {v.indicadores.map((ind, iIdx) => (
-                              <span key={iIdx} className="text-[8px] bg-brand-bg px-1.5 py-0.5 rounded border border-brand-border text-brand-muted font-bold uppercase tracking-tighter">
-                                {ind}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
                         <div className="bg-brand-bg/50 rounded-xl p-4 border border-brand-border/50">
                           <div className="flex justify-between items-center mb-3">
                             <p className="text-[10px] font-bold text-brand-muted uppercase tracking-wider">Salários de Contribuição</p>
                             <button 
                               onClick={() => {
                                 const competencia = safeFormat(new Date(), 'yyyy-MM');
-                                updateVinculo(v.id, { salarios: [...v.salarios, { competencia, valor: 1412 }] });
+                                updateVinculo(v.id, { salarios: [...v.salarios, { competencia, valor: 1320 }] });
                               }}
                               className="text-[10px] font-bold text-brand-primary uppercase tracking-wider flex items-center gap-1 hover:bg-brand-primary/10 px-2 py-1 rounded-md transition-all"
                             >
@@ -1014,7 +627,6 @@ export default function App() {
                                       type="number" 
                                       step="0.01"
                                       value={s.valor ?? ''}
-                                      onFocus={(e) => e.target.select()}
                                       onChange={(e) => {
                                         const newSalarios = [...v.salarios];
                                         newSalarios[sIdx].valor = parseFloat(e.target.value) || 0;
@@ -1279,7 +891,7 @@ export default function App() {
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] uppercase font-bold text-white/60 tracking-wider">Coeficiente Aplicado</p>
-                      <p className="text-3xl font-bold">{(resultado.valorEstimado.coeficiente * 100).toFixed(0)}%</p>
+                      <p className="text-3xl font-bold">{resultado.valorEstimado.coeficiente.toFixed(1)}%</p>
                     </div>
                     {resultado.melhorOpcao.tempoFaltanteDias && resultado.melhorOpcao.tempoFaltanteDias > 0 && (
                       <div className="space-y-1">
@@ -1615,7 +1227,7 @@ export default function App() {
                             </div>
                             <div>
                               <p className="text-[10px] uppercase font-bold text-white/50 tracking-widest mb-2">Coeficiente</p>
-                              <p className="text-3xl font-bold">{(resultado.valorEstimado.coeficiente * 100).toFixed(0)}%</p>
+                              <p className="text-3xl font-bold">{resultado.valorEstimado.coeficiente.toFixed(1)}%</p>
                             </div>
                           </div>
                           <div className="pt-8 border-t border-white/10">
@@ -1646,20 +1258,10 @@ export default function App() {
                         <div key={v.id} className="bg-brand-bg/30 border border-brand-border rounded-3xl overflow-hidden">
                           <div className="bg-brand-bg/50 p-6 border-b border-brand-border flex justify-between items-center">
                             <div>
-                              <h4 className="font-bold text-brand-text text-lg">
-                                {v.seq && <span className="text-brand-primary mr-2">Seq.{String(v.seq).padStart(2, '0')}</span>}
-                                {v.empresa || 'Vínculo não identificado'}
-                              </h4>
-                              <div className="flex flex-wrap gap-2 mt-1">
-                                <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest">
-                                  {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '??'} a {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
-                                </p>
-                                {v.indicadores?.map((ind, iIdx) => (
-                                  <span key={iIdx} className="text-[8px] bg-brand-bg px-1.5 py-0.5 rounded border border-brand-border text-brand-muted font-bold">
-                                    {ind}
-                                  </span>
-                                ))}
-                              </div>
+                              <h4 className="font-bold text-brand-text text-lg">{v.empresa || 'Vínculo não identificado'}</h4>
+                              <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mt-1">
+                                {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '??'} a {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
+                              </p>
                             </div>
                             <div className="text-right">
                               <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mb-1">Contribuições</p>
@@ -1673,9 +1275,6 @@ export default function App() {
                                   <div key={sIdx} className="bg-white border border-brand-border/50 p-3 rounded-xl text-center">
                                     <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{safeFormat(s.competencia + '-01', 'MM/yyyy')}</p>
                                     <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                                    {s.indicadores?.map((ind, iIdx) => (
-                                      <p key={iIdx} className="text-[7px] text-brand-primary font-bold mt-0.5">{ind}</p>
-                                    ))}
                                   </div>
                                 ))}
                               </div>
