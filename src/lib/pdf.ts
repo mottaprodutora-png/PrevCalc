@@ -15,26 +15,9 @@ export async function extractTextFromPdf(file: File): Promise<string> {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    // Sort items by Y position (top to bottom) then X position (left to right)
-    const items = textContent.items as any[];
-    items.sort((a, b) => {
-      if (Math.abs(a.transform[5] - b.transform[5]) < 5) {
-        return a.transform[4] - b.transform[4];
-      }
-      return b.transform[5] - a.transform[5];
-    });
-
-    let pageText = '';
-    let lastY = -1;
-    for (const item of items) {
-      if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 5) {
-        pageText += '\n';
-      } else if (lastY !== -1) {
-        pageText += ' ';
-      }
-      pageText += item.str;
-      lastY = item.transform[5];
-    }
+    const pageText = textContent.items
+      .map((item: any) => item.str)
+      .join(' ');
     fullText += pageText + '\n';
   }
 

@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { addDays, parseISO, isValid } from 'date-fns';
-import { safeFormat } from './lib/dateUtils';
+import { format, addDays, parseISO } from 'date-fns';
 import { 
   Calculator, 
   FileText, 
@@ -167,41 +166,28 @@ export default function App() {
     const text = textToProcess || importText;
     if (!text) return;
     setIsImporting(true);
-    console.log("Iniciando importação de texto CNIS...");
     try {
       // Tenta primeiro com Regex (Local, Grátis, Sem Chave)
       const regexResult = parseCnisWithRegex(text);
-      console.log("Resultado do parser local:", regexResult);
       
       if (regexResult.vinculos.length > 0) {
-        // Filtra vínculos vazios ou inválidos
-        const validVinculos = regexResult.vinculos.filter(v => v.inicio || v.salarios?.length > 0);
-        if (validVinculos.length > 0) {
-          setVinculos([...vinculos, ...validVinculos]);
-          if (regexResult.nome && !nome) {
-            setNome(regexResult.nome);
-          }
-          if (regexResult.dataNascimento && !nascimento) {
-            setNascimento(regexResult.dataNascimento);
-          }
-          setActiveTab('manual');
-          setImportText('');
-          setIsImporting(false);
-          return;
+        setVinculos([...vinculos, ...regexResult.vinculos]);
+        if (regexResult.nome && !nome) {
+          setNome(regexResult.nome);
         }
+        setActiveTab('manual');
+        setImportText('');
+        setIsImporting(false);
+        return;
       }
 
       // Se o regex não encontrar nada, tenta com IA (Se a chave estiver configurada)
-      console.log("Parser local não encontrou dados suficientes. Tentando IA...");
-      const { nome: importedNome, dataNascimento: importedDataNascimento, vinculos: importedVinculos, error } = await parseCnisText(text);
+      const { nome: importedNome, vinculos: importedVinculos, error } = await parseCnisText(text);
       
-    if (error === 'API_KEY_MISSING') {
-      console.warn("IA não disponível (chave ausente). Usando apenas extração local.");
-      if (regexResult.vinculos.length === 0) {
-        alert("Não foi possível extrair os dados automaticamente deste PDF. \n\nIsso pode acontecer se o arquivo estiver protegido ou em um formato não suportado. \n\nSugestão: Tente copiar o texto do PDF e colar na aba 'Importar Texto' ou preencha os dados manualmente.");
+      if (error === 'API_KEY_MISSING') {
+        alert("Não foi possível extrair dados localmente. Para usar a extração via IA, você precisa configurar a GEMINI_API_KEY no Vercel.");
+        return;
       }
-      return;
-    }
 
       if (error) {
         alert(`Erro na extração via IA: ${error}. Tente copiar e colar o texto novamente.`);
@@ -212,9 +198,6 @@ export default function App() {
         setVinculos([...vinculos, ...importedVinculos]);
         if (importedNome && !nome) {
           setNome(importedNome);
-        }
-        if (importedDataNascimento && !nascimento) {
-          setNascimento(importedDataNascimento);
         }
         setActiveTab('manual');
         setImportText('');
@@ -270,7 +253,7 @@ export default function App() {
     setIsDownloading(true);
     const opt = {
       margin: [10, 10] as [number, number],
-      filename: `Relatorio_PrevCalc_${nome ? nome.replace(/\s+/g, '_') + '_' : ''}${activeReport === 'advogado' ? 'Tecnico' : 'Resumo'}_${safeFormat(new Date(), 'dd_MM_yyyy')}.pdf`,
+      filename: `Relatorio_PrevCalc_${nome ? nome.replace(/\s+/g, '_') + '_' : ''}${activeReport === 'advogado' ? 'Tecnico' : 'Resumo'}_${format(new Date(), 'dd_MM_yyyy')}.pdf`,
       image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { 
         scale: 2, 
@@ -452,17 +435,6 @@ export default function App() {
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="font-bold text-lg text-brand-text">Vínculos e Períodos</h2>
                   <div className="flex gap-2">
-                    <button 
-                      onClick={() => {
-                        if (confirm("Tem certeza que deseja limpar todos os dados?")) {
-                          setVinculos([]);
-                          setNome('');
-                        }
-                      }}
-                      className="flex items-center gap-2 bg-white border border-red-200 text-red-500 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 transition-all"
-                    >
-                      <Trash2 size={14} /> Limpar
-                    </button>
                     {user && vinculos.length > 0 && (
                       <button 
                         onClick={saveCalculation}
@@ -507,7 +479,7 @@ export default function App() {
                               <Briefcase size={18} />
                             </div>
                             <h4 className="font-bold text-sm text-brand-text truncate max-w-[200px]">
-                              {v.empresa && !v.empresa.toLowerCase().includes('cadastro nacional') ? v.empresa : 'Vínculo Identificado'}
+                              {v.empresa || 'Novo Vínculo'}
                             </h4>
                           </div>
                           <button 
@@ -595,7 +567,7 @@ export default function App() {
                             <p className="text-[10px] font-bold text-brand-muted uppercase tracking-wider">Salários de Contribuição</p>
                             <button 
                               onClick={() => {
-                                const competencia = safeFormat(new Date(), 'yyyy-MM');
+                                const competencia = format(new Date(), 'yyyy-MM');
                                 updateVinculo(v.id, { salarios: [...v.salarios, { competencia, valor: 1320 }] });
                               }}
                               className="text-[10px] font-bold text-brand-primary uppercase tracking-wider flex items-center gap-1 hover:bg-brand-primary/10 px-2 py-1 rounded-md transition-all"
@@ -688,7 +660,7 @@ export default function App() {
                         <div className="flex justify-between items-start mb-2">
                           <h4 className="font-bold text-sm text-brand-text truncate pr-4">{calc.name}</h4>
                           <span className="text-[10px] font-bold text-brand-muted whitespace-nowrap">
-                            {safeFormat(calc.created_at, 'dd/MM/yy')}
+                            {format(new Date(calc.created_at), 'dd/MM/yy')}
                           </span>
                         </div>
                         <div className="flex items-center gap-4 text-[10px] font-bold text-brand-muted uppercase tracking-wider">
@@ -696,7 +668,7 @@ export default function App() {
                             <User size={10} /> {calc.gender === 'M' ? 'Masc.' : 'Fem.'}
                           </span>
                           <span className="flex items-center gap-1">
-                            <Calendar size={10} /> {safeFormat(calc.birth_date, 'dd/MM/yyyy')}
+                            <Calendar size={10} /> {format(new Date(calc.birth_date), 'dd/MM/yyyy')}
                           </span>
                         </div>
                         <div className="mt-3 pt-3 border-t border-brand-border flex justify-between items-center">
@@ -928,8 +900,7 @@ export default function App() {
                         <div className="col-span-3">
                           <span className={cn(
                             "text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider",
-                            regra.status === 'Apto' ? "bg-green-100 text-green-700" : 
-                            regra.status === 'Não se aplica' ? "bg-gray-100 text-gray-400" : "bg-brand-bg text-brand-muted"
+                            regra.status === 'Apto' ? "bg-green-100 text-green-700" : "bg-brand-bg text-brand-muted"
                           )}>
                             {regra.status}
                           </span>
@@ -937,12 +908,9 @@ export default function App() {
                         <div className="col-span-3 text-right">
                           <p className={cn(
                             "text-xs font-bold",
-                            regra.status === 'Apto' ? "text-green-600" : 
-                            regra.status === 'Não se aplica' ? "text-gray-400" : "text-brand-text"
+                            regra.status === 'Apto' ? "text-green-600" : "text-brand-text"
                           )}>
-                            {regra.status === 'Apto' ? 'IMEDIATO' : 
-                             regra.status === 'Não se aplica' ? 'N/A' :
-                             `+${Math.ceil((regra.tempoFaltanteDias || 0) / 30.44)} meses`}
+                            {regra.status === 'Apto' ? 'IMEDIATO' : `+${Math.ceil((regra.tempoFaltanteDias || 0) / 30.44)} meses`}
                           </p>
                         </div>
                       </div>
@@ -1067,7 +1035,7 @@ export default function App() {
                       {activeReport === 'advogado' ? 'Relatório Técnico Previdenciário' : 'Resumo de Aposentadoria'}
                     </h2>
                     <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest">
-                      Gerado em {safeFormat(new Date(), 'dd/MM/yyyy HH:mm')}
+                      Gerado em {format(new Date(), 'dd/MM/yyyy HH:mm')}
                     </p>
                   </div>
                 </div>
@@ -1109,7 +1077,7 @@ export default function App() {
                     <p className="text-[12px] uppercase tracking-[0.6em] text-brand-muted font-bold">Parecer Técnico de Viabilidade Previdenciária</p>
                     <div className="mt-10 flex justify-center gap-12 text-[11px] font-bold uppercase tracking-widest text-brand-muted">
                       <span className="flex items-center gap-2"><User size={12} /> Ref: {nome || 'Contribuinte'}</span>
-                      <span className="flex items-center gap-2"><Calendar size={12} /> Data: {safeFormat(new Date(), 'dd/MM/yyyy')}</span>
+                      <span className="flex items-center gap-2"><Calendar size={12} /> Data: {format(new Date(), 'dd/MM/yyyy')}</span>
                       <span className="flex items-center gap-2"><ShieldCheck size={12} /> ID: #{Math.random().toString(36).substring(7).toUpperCase()}</span>
                     </div>
                   </div>
@@ -1183,8 +1151,7 @@ export default function App() {
                               <td className="p-5">
                                 <span className={cn(
                                   "px-3 py-1 rounded-full font-bold uppercase text-[9px] tracking-widest",
-                            regra.status === 'Apto' ? "bg-green-100 text-green-700" : 
-                            regra.status === 'Não se aplica' ? "bg-gray-100 text-gray-400" : "bg-brand-bg text-brand-muted"
+                                  regra.status === 'Apto' ? "bg-green-100 text-green-700" : "bg-brand-bg text-brand-muted"
                                 )}>
                                   {regra.status}
                                 </span>
@@ -1192,15 +1159,13 @@ export default function App() {
                               <td className="p-5 font-bold text-brand-text">
                                 {regra.status === 'Apto' ? 
                                   <span className="text-green-600 flex items-center gap-1"><ShieldCheck size={12} /> CONCLUÍDO</span> : 
-                                  regra.status === 'Não se aplica' ? 'N/A' :
                                   `${Math.ceil((regra.tempoFaltanteDias || 0) / 365.25)} ANOS`
                                 }
                               </td>
                               <td className="p-5 text-right font-bold text-brand-text">
                                 {regra.status === 'Apto' ? 
                                   <span className="text-green-600">IMEDIATO</span> : 
-                                  regra.status === 'Não se aplica' ? '---' :
-                                  safeFormat(addDays(new Date(), regra.tempoFaltanteDias || 0), 'MM/yyyy')
+                                  format(addDays(new Date(), regra.tempoFaltanteDias || 0), 'MM/yyyy')
                                 }
                               </td>
                             </tr>
@@ -1260,7 +1225,7 @@ export default function App() {
                             <div>
                               <h4 className="font-bold text-brand-text text-lg">{v.empresa || 'Vínculo não identificado'}</h4>
                               <p className="text-[10px] uppercase font-bold text-brand-muted tracking-widest mt-1">
-                                {v.inicio ? safeFormat(v.inicio, 'dd/MM/yyyy') : '??'} a {v.fim ? safeFormat(v.fim, 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
+                                {v.inicio ? format(parseISO(v.inicio), 'dd/MM/yyyy') : '??'} a {v.fim ? format(parseISO(v.fim), 'dd/MM/yyyy') : 'Atual'} • {v.tipo} {v.especial && '• Especial'}
                               </p>
                             </div>
                             <div className="text-right">
@@ -1273,7 +1238,7 @@ export default function App() {
                               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                                 {v.salarios.sort((a,b) => a.competencia.localeCompare(b.competencia)).map((s, sIdx) => (
                                   <div key={sIdx} className="bg-white border border-brand-border/50 p-3 rounded-xl text-center">
-                                    <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{safeFormat(s.competencia + '-01', 'MM/yyyy')}</p>
+                                    <p className="text-[9px] font-bold text-brand-muted uppercase mb-1">{format(parseISO(s.competencia + '-01'), 'MM/yyyy')}</p>
                                     <p className="text-xs font-bold text-brand-text">R$ {s.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                   </div>
                                 ))}
